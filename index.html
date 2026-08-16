@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Personalizador de Capa Bimby — TM7 Display Cover</title>
+<meta name="description" content="Personalize a capa do ecrã da Bimby TM7 com texto e imagens, veja a pré-visualização 3D e descarregue o STL para imprimir.">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍲</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Personalizador de Capa <span>Bimby TM7</span></h1>
+  <div class="topbar-actions">
+    <button id="btn-snapshot" class="btn btn-ghost" type="button">Guardar imagem</button>
+    <button id="btn-stl" class="btn btn-primary" type="button">Descarregar STL</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <aside class="panel" id="panel">
+
+    <section class="group">
+      <h2>Capa</h2>
+
+      <div class="field">
+        <label>Estilo</label>
+        <div class="seg" id="style-seg">
+          <button type="button" data-val="shell" class="on">Com rebordo</button>
+          <button type="button" data-val="plate">Placa lisa</button>
+        </div>
+      </div>
+
+      <div class="field"><label for="f-width">Largura <output id="o-width"></output></label>
+        <input type="range" id="f-width" min="80" max="340" step="1" value="230"></div>
+
+      <div class="field"><label for="f-height">Altura <output id="o-height"></output></label>
+        <input type="range" id="f-height" min="50" max="260" step="1" value="150"></div>
+
+      <div class="field"><label for="f-radius">Raio dos cantos <output id="o-radius"></output></label>
+        <input type="range" id="f-radius" min="0" max="45" step="0.5" value="10"></div>
+
+      <div class="field"><label for="f-wall">Espessura <output id="o-wall"></output></label>
+        <input type="range" id="f-wall" min="0.8" max="6" step="0.1" value="2"></div>
+
+      <div class="field" id="depth-field"><label for="f-depth">Profundidade do rebordo <output id="o-depth"></output></label>
+        <input type="range" id="f-depth" min="2" max="45" step="0.5" value="12"></div>
+    </section>
+
+    <section class="group">
+      <h2>Relevo</h2>
+
+      <div class="field">
+        <label>Modo</label>
+        <div class="seg" id="mode-seg">
+          <button type="button" data-val="raised" class="on">Em relevo</button>
+          <button type="button" data-val="engraved">Gravado</button>
+        </div>
+      </div>
+
+      <div class="field"><label for="f-stamp">Altura do relevo <output id="o-stamp"></output></label>
+        <input type="range" id="f-stamp" min="0.2" max="4" step="0.1" value="1"></div>
+      <p class="warn" id="stamp-warn" hidden></p>
+
+      <div class="field"><label for="f-quality">Qualidade da malha</label>
+        <select id="f-quality">
+          <option value="1.2">Rascunho — rápido</option>
+          <option value="0.7" selected>Normal</option>
+          <option value="0.45">Fina — detalhe máximo</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="group">
+      <div class="group-head">
+        <h2>Camadas</h2>
+        <div class="group-head-actions">
+          <button type="button" class="btn btn-sm" id="btn-add-text">+ Texto</button>
+          <button type="button" class="btn btn-sm" id="btn-add-image">+ Imagem</button>
+          <input type="file" id="file-image" accept="image/*" hidden>
+        </div>
+      </div>
+      <ul class="layers" id="layers"></ul>
+      <p class="empty" id="layers-empty">Sem camadas. Adicione texto ou uma imagem.</p>
+    </section>
+
+    <section class="group" id="editor-group" hidden>
+      <h2>Editar camada</h2>
+      <div id="editor"></div>
+    </section>
+
+    <section class="group">
+      <h2>Resultado</h2>
+      <dl class="stats">
+        <div><dt>Dimensões</dt><dd id="s-dims">—</dd></div>
+        <div><dt>Triângulos</dt><dd id="s-tris">—</dd></div>
+        <div><dt>Tamanho do STL</dt><dd id="s-size">—</dd></div>
+      </dl>
+      <button id="btn-stl-2" class="btn btn-primary btn-block" type="button">Descarregar STL</button>
+      <button id="btn-reset" class="btn btn-ghost btn-block" type="button">Repor tudo</button>
+    </section>
+
+  </aside>
+
+  <div class="viewport" id="viewport">
+    <canvas id="canvas"></canvas>
+    <div class="viewport-hint">Arraste para rodar · roda do rato para ampliar</div>
+    <div class="viewport-badge" id="busy" hidden>a recalcular…</div>
+    <div class="viewport-tools">
+      <button type="button" class="btn btn-sm" id="btn-view-front">Frente</button>
+      <button type="button" class="btn btn-sm" id="btn-view-iso">Perspetiva</button>
+      <button type="button" class="btn btn-sm" id="btn-view-back">Trás</button>
+      <button type="button" class="btn btn-sm" id="btn-wire">Malha</button>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
