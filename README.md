@@ -76,12 +76,12 @@ Then open <http://localhost:8099/>.
 
 ## Publishing to GitHub Pages
 
-`.github/workflows/pages.yml` deploys the repo root on every push to `main`,
-and can also be run by hand from the Actions tab. It calls
-`actions/configure-pages` with `enablement: true`, so the first run switches
-Pages on by itself — there is nothing to set in repository settings.
+**Settings → Pages → Source: _Deploy from a branch_ → `main` → `/ (root)` → Save.**
 
-`main` must be the repository's default branch, otherwise the `github-pages`
-environment will refuse the deployment.
+The site is then served at `https://epapaulo.github.io/epa_site/`, and every
+push to `main` republishes it. There is no build step, so no workflow is
+needed; `.nojekyll` is present so the asset folders are served untouched.
 
-`.nojekyll` is present so the asset folders are served untouched.
+Turning Pages on has to be done from the web UI — the Actions `GITHUB_TOKEN`
+is not permitted to create a Pages site, so it cannot be automated from
+inside the repository.
