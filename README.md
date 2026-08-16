@@ -76,5 +76,12 @@ Then open <http://localhost:8099/>.
 
 ## Publishing to GitHub Pages
 
-Settings → Pages → *Deploy from a branch*, pick the branch and `/ (root)`.
-`.nojekyll` is already present so the asset folders are served untouched.
+`.github/workflows/pages.yml` deploys the repo root on every push to `main`,
+and can also be run by hand from the Actions tab. It calls
+`actions/configure-pages` with `enablement: true`, so the first run switches
+Pages on by itself — there is nothing to set in repository settings.
+
+`main` must be the repository's default branch, otherwise the `github-pages`
+environment will refuse the deployment.
+
+`.nojekyll` is present so the asset folders are served untouched.
