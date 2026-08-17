@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encomendas — Capas TM7</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖨️</text></svg>">
+<style>
+/* Light-first: this is back-office work done in daylight over long sessions.
+   Semantic colour (waiting / approved / rejected / printed) is kept separate
+   from the accent so status never competes with an action for attention. */
+:root {
+  --ground: #f7f8f8;
+  --surface: #ffffff;
+  --surface-2: #f1f3f3;
+  --line: #e2e6e7;
+  --line-strong: #cfd6d7;
+  --ink: #15191a;
+  --muted: #636e70;
+  --accent: #0f6e64;
+  --accent-ink: #ffffff;
+
+  --wait: #b26b00;
+  --wait-bg: #fdf4e3;
+  --ok: #1f7a3d;
+  --ok-bg: #edf7f0;
+  --bad: #b4231f;
+  --bad-bg: #fdeeed;
+  --done: #4a5568;
+  --done-bg: #eef0f3;
+
+  --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Three theme states, not two: an explicit choice stamps data-theme, and the
+   default "system" setting stamps nothing, leaving only the media query. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #121516;
+    --surface: #191d1f;
+    --surface-2: #212628;
+    --line: #2a3134;
+    --line-strong: #3a4347;
+    --ink: #e6ebec;
+    --muted: #8d999b;
+    --accent: #4fbfb0;
+    --accent-ink: #06201d;
+
+    --wait: #e0a23c;
+    --wait-bg: #2a2216;
+    --ok: #5cc47f;
+    --ok-bg: #16261c;
+    --bad: #e8756f;
+    --bad-bg: #2a1817;
+    --done: #9aa6b4;
+    --done-bg: #1e2327;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #121516;
+  --surface: #191d1f;
+  --surface-2: #212628;
+  --line: #2a3134;
+  --line-strong: #3a4347;
+  --ink: #e6ebec;
+  --muted: #8d999b;
+  --accent: #4fbfb0;
+  --accent-ink: #06201d;
+
+  --wait: #e0a23c;
+  --wait-bg: #2a2216;
+  --ok: #5cc47f;
+  --ok-bg: #16261c;
+  --bad: #e8756f;
+  --bad-bg: #2a1817;
+  --done: #9aa6b4;
+  --done-bg: #1e2327;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- chrome ---------- */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.bar h1 span {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+}
+
+.bar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.conn i {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.conn.on i { background: var(--ok); }
+.conn.off i { background: var(--bad); }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 22px; }
+
+/* ---------- filters ---------- */
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.chip:hover { border-color: var(--line-strong); }
+
+.chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.chip b {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.chip[aria-pressed="true"] b { color: var(--accent-ink); opacity: .8; }
+
+/* ---------- order cards ---------- */
+
+.list { display: flex; flex-direction: column; gap: 12px; }
+
+.order {
+  display: grid;
+  grid-template-columns: 6px 92px 1fr auto;
+  gap: 0 16px;
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* The stripe repeats status as form, so the queue reads without reading. */
+.stripe { align-self: stretch; background: var(--muted); }
+.order[data-status="pending_review"] .stripe { background: var(--wait); }
+.order[data-status="approved"] .stripe { background: var(--ok); }
+.order[data-status="rejected"] .stripe { background: var(--bad); }
+.order[data-status="printed"] .stripe { background: var(--done); }
+
+.thumb {
+  margin: 14px 0 14px 0;
+  width: 92px; height: 69px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  object-fit: cover;
+  display: block;
+}
+
+.thumb.none {
+  display: grid; place-items: center;
+  font-size: 10px; color: var(--muted); text-align: center;
+}
+
+.meta { padding: 14px 0; min-width: 0; }
+
+.meta h2 {
+  margin: 0 0 3px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.meta h2 em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.ids {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.note-shown {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
+.side {
+  padding: 14px 16px 14px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--done-bg);
+  color: var(--done);
+}
+
+.order[data-status="pending_review"] .pill { background: var(--wait-bg); color: var(--wait); }
+.order[data-status="approved"] .pill { background: var(--ok-bg); color: var(--ok); }
+.order[data-status="rejected"] .pill { background: var(--bad-bg); color: var(--bad); }
+
+.actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---------- buttons ---------- */
+
+.btn {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn-go {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.btn-go:hover:not(:disabled) { filter: brightness(1.08); color: var(--accent-ink); }
+
+.btn-bad:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+
+/* ---------- states ---------- */
+
+.state {
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 44px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.state b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 5px; }
+
+.err {
+  border: 1px solid var(--bad);
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-radius: 10px;
+  padding: 12px 15px;
+  font-size: 13.5px;
+  margin-bottom: 16px;
+}
+
+/* ---------- token gate ---------- */
+
+.gate { max-width: 420px; margin: 12vh auto; padding: 0 22px; }
+
+.gate form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.gate h2 { margin: 0 0 4px; font-size: 17px; letter-spacing: -0.01em; }
+.gate p { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; }
+
+.gate label {
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+
+.gate input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.gate input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.gate .btn-go { width: 100%; margin-top: 14px; padding: 11px; }
+
+[hidden] { display: none !important; }
+
+@media (max-width: 720px) {
+  .order { grid-template-columns: 5px 1fr; }
+  .thumb { grid-column: 2; margin-bottom: 0; }
+  .meta { grid-column: 2; padding-top: 10px; }
+  .side { grid-column: 2; align-items: flex-start; padding: 0 16px 14px 0; }
+  .actions { justify-content: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<!-- token gate -->
+<div class="gate" id="gate" hidden>
+  <form id="gate-form">
+    <h2>Encomendas</h2>
+    <p>Introduza o token de administração para ver a fila de produção.</p>
+    <label for="tok">Token</label>
+    <input id="tok" type="password" autocomplete="current-password" spellcheck="false" required>
+    <div class="err" id="gate-err" hidden></div>
+    <button type="submit" class="btn btn-go">Entrar</button>
+  </form>
+</div>
+
+<!-- console -->
+<div id="app" hidden>
+  <header class="bar">
+    <h1>Encomendas<span>Capas TM7 · produção</span></h1>
+    <div class="bar-right">
+      <span class="conn" id="conn"><i></i><span id="conn-text">—</span></span>
+      <button class="btn" id="refresh" type="button">Atualizar</button>
+      <button class="btn" id="logout" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="err" id="err" hidden></div>
+    <div class="filters" id="filters"></div>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const KEY = 'tm7-admin-token';
+
+  // sessionStorage, not localStorage: the token should not outlive the tab.
+  let token = sessionStorage.getItem(KEY) || '';
+  let orders = [];
+  let filter = 'pending_review';
+  let busy = false;
+
+  const FILTERS = [
+    ['pending_review', 'Por rever'],
+    ['approved', 'Aprovadas'],
+    ['printed', 'Impressas'],
+    ['rejected', 'Rejeitadas'],
+    ['', 'Todas'],
+  ];
+
+  const LABEL = {
+    pending_review: 'Por rever',
+    approved: 'Aprovada',
+    rejected: 'Rejeitada',
+    printed: 'Impressa',
+    no_design: 'Sem desenho',
+  };
+
+  // ---- transport ---------------------------------------------------------
+
+  async function api(path, opts) {
+    const res = await fetch(path, Object.assign({}, opts, {
+      headers: Object.assign(
+        { Authorization: 'Bearer ' + token },
+        (opts && opts.headers) || {},
+      ),
+    }));
+    if (res.status === 401) {
+      signOut('O token foi recusado.');
+      throw new Error('unauthorised');
+    }
+    return res;
+  }
+
+  function setConn(ok, text) {
+    const el = $('conn');
+    el.className = 'conn ' + (ok === null ? '' : ok ? 'on' : 'off');
+    $('conn-text').textContent = text;
+  }
+
+  function showError(msg) {
+    const el = $('err');
+    el.hidden = !msg;
+    el.textContent = msg || '';
+  }
+
+  // ---- data --------------------------------------------------------------
+
+  async function load() {
+    if (busy) return;
+    busy = true;
+    setConn(null, 'a carregar…');
+    try {
+      const res = await api('/admin/queue');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      orders = await res.json();
+      showError('');
+      setConn(true, orders.length + (orders.length === 1 ? ' encomenda' : ' encomendas'));
+      render();
+    } catch (err) {
+      if (err.message !== 'unauthorised') {
+        setConn(false, 'sem ligação');
+        showError('Não foi possível contactar o servidor de encomendas. ' + err.message);
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function setStatus(orderId, status, note) {
+    const body = note === undefined ? { status: status } : { status: status, note: note };
+    const res = await api('/admin/orders/' + encodeURIComponent(orderId) + '/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      showError('Não foi possível alterar o estado (HTTP ' + res.status + ').');
+      return;
+    }
+    await load();
+  }
+
+  async function downloadSTL(designId, orderNumber) {
+    showError('');
+    try {
+      const res = await api('/admin/designs/' + encodeURIComponent(designId) + '/model.stl');
+      if (res.status === 409) {
+        showError('Aprove a encomenda antes de descarregar o ficheiro de impressão.');
+        return;
+      }
+      if (!res.ok) {
+        const detail = await res.json().catch(function () { return {}; });
+        showError('Não foi possível gerar o STL: ' + (detail.error || 'HTTP ' + res.status));
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'capa-' + (orderNumber || designId) + '.stl';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    } catch (err) {
+      if (err.message !== 'unauthorised') showError(err.message);
+    }
+  }
+
+  // ---- rendering ---------------------------------------------------------
+
+  function counts() {
+    const c = {};
+    for (const o of orders) c[o.status] = (c[o.status] || 0) + 1;
+    return c;
+  }
+
+  function renderFilters() {
+    const c = counts();
+    const host = $('filters');
+    host.textContent = '';
+    for (const [value, label] of FILTERS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.setAttribute('aria-pressed', String(value === filter));
+      b.append(label);
+      const n = document.createElement('b');
+      n.textContent = value ? (c[value] || 0) : orders.length;
+      b.append(n);
+      b.addEventListener('click', function () { filter = value; render(); });
+      host.append(b);
+    }
+  }
+
+  function fmtDate(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso || '';
+    return d.toLocaleString('pt-PT', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function orderCard(o) {
+    const el = document.createElement('article');
+    el.className = 'order';
+    el.dataset.status = o.status;
+
+    const stripe = document.createElement('div');
+    stripe.className = 'stripe';
+    el.append(stripe);
+
+    // preview
+    const designId = o.designIds && o.designIds[0];
+    if (designId) {
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.alt = 'Pré-visualização da capa encomendada';
+      img.loading = 'lazy';
+      img.src = '/api/designs/' + encodeURIComponent(designId) + '/preview.png';
+      img.addEventListener('error', function () {
+        const ph = document.createElement('div');
+        ph.className = 'thumb none';
+        ph.textContent = 'sem imagem';
+        img.replaceWith(ph);
+      });
+      el.append(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'thumb none';
+      ph.textContent = 'sem desenho';
+      el.append(ph);
+    }
+
+    // meta
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const h = document.createElement('h2');
+    h.append('Encomenda ');
+    const num = document.createElement('em');
+    num.textContent = o.orderNumber ? '#' + o.orderNumber : o.orderId;
+    h.append(num);
+    meta.append(h);
+
+    const sub = document.createElement('p');
+    sub.className = 'sub';
+    const items = (o.lines || [])
+      .map(function (l) { return l.quantity + '× ' + l.title; })
+      .join(' · ');
+    sub.textContent = [fmtDate(o.createdAt), o.email, items].filter(Boolean).join('  ·  ');
+    meta.append(sub);
+
+    if (designId) {
+      const ids = document.createElement('p');
+      ids.className = 'ids';
+      ids.textContent = o.designIds.join('  ');
+      meta.append(ids);
+    }
+
+    if (o.note) {
+      const n = document.createElement('p');
+      n.className = 'note-shown';
+      n.textContent = o.note;
+      meta.append(n);
+    }
+
+    el.append(meta);
+
+    // status + actions
+    const side = document.createElement('div');
+    side.className = 'side';
+
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = LABEL[o.status] || o.status;
+    side.append(pill);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    function button(label, cls, fn) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    }
+
+    if (o.status === 'pending_review') {
+      actions.append(button('Aprovar', 'btn-go', function () {
+        setStatus(o.orderId, 'approved');
+      }));
+      actions.append(button('Rejeitar', 'btn-bad', function () {
+        const why = prompt('Motivo da rejeição (fica no registo da encomenda):');
+        if (why === null) return;
+        setStatus(o.orderId, 'rejected', why);
+      }));
+    }
+
+    if (o.status === 'approved') {
+      actions.append(button('Descarregar STL', 'btn-go', function () {
+        downloadSTL(designId, o.orderNumber);
+      }));
+      actions.append(button('Marcar impressa', '', function () {
+        setStatus(o.orderId, 'printed');
+      }));
+    }
+
+    if (o.status === 'printed') {
+      actions.append(button('Descarregar STL', '', function () {
+        downloadSTL(designId, o.orderNumber);
+      }));
+    }
+
+    if (o.status === 'rejected') {
+      actions.append(button('Reabrir', '', function () {
+        setStatus(o.orderId, 'pending_review', '');
+      }));
+    }
+
+    side.append(actions);
+    el.append(side);
+    return el;
+  }
+
+  function render() {
+    renderFilters();
+    const host = $('list');
+    host.textContent = '';
+
+    const shown = filter ? orders.filter(function (o) { return o.status === filter; }) : orders;
+
+    if (!shown.length) {
+      const s = document.createElement('div');
+      s.className = 'state';
+      const b = document.createElement('b');
+      b.textContent = orders.length
+        ? 'Nada nesta vista'
+        : 'Ainda não há encomendas';
+      s.append(b);
+      s.append(orders.length
+        ? 'Escolha outro filtro para ver as restantes.'
+        : 'Assim que uma encomenda personalizada chegar do Shopify, aparece aqui para revisão.');
+      host.append(s);
+      return;
+    }
+
+    for (const o of shown) host.append(orderCard(o));
+  }
+
+  // ---- session -----------------------------------------------------------
+
+  function signIn(value) {
+    token = value;
+    sessionStorage.setItem(KEY, value);
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    load();
+  }
+
+  function signOut(message) {
+    token = '';
+    sessionStorage.removeItem(KEY);
+    $('app').hidden = true;
+    $('gate').hidden = false;
+    const err = $('gate-err');
+    err.hidden = !message;
+    err.textContent = message || '';
+  }
+
+  $('gate-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const v = $('tok').value.trim();
+    if (v) signIn(v);
+  });
+
+  $('refresh').addEventListener('click', load);
+  $('logout').addEventListener('click', function () { signOut(''); });
+
+  if (token) signIn(token);
+  else signOut('');
+})();
+</script>
+</body>
+</html>

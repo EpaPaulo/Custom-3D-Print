@@ -1,8 +1,13 @@
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import express from 'express';
 import { config, assertRuntimeConfig } from './config.js';
 import * as store from './store.js';
 import { renderDesignSTL, templateInfo, decodeMask, RenderError } from './render.js';
+
+// Read once: it is a fixed asset, and a failure to find it should stop the
+// process at startup rather than 500 on the first person trying to log in.
+const ADMIN_UI = readFileSync(new URL('./admin-ui.html', import.meta.url), 'utf8');
 
 export function createApp() {
   const app = express();
@@ -109,6 +114,13 @@ export function createApp() {
   // -------------------------------------------------------------------------
   // Admin — everything that can reach a print file
   // -------------------------------------------------------------------------
+
+  // The console itself carries no data, so it is served without a token; it
+  // asks for one and sends it on every request below. Registered ahead of the
+  // admin router so the page is reachable in order to log in at all.
+  app.get('/admin', (_req, res) => {
+    res.type('html').set('Cache-Control', 'no-store').send(ADMIN_UI);
+  });
 
   const admin = express.Router();
   admin.use(requireAdmin);

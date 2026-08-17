@@ -66,6 +66,7 @@ itself produces.
 
 | | |
 |---|---|
+| `GET /admin` | the review console (HTML, no token needed to load) |
 | `GET /admin/queue?status=pending_review` | orders awaiting review |
 | `POST /admin/orders/:id/status` | `{ status, note }` — approve / reject / printed |
 | `GET /admin/designs/:id/model.stl` | the print file |
@@ -79,6 +80,23 @@ proof for a customer.
 `POST /webhooks/shopify/orders-create` — HMAC-SHA256 verified against the raw
 body before it is parsed. An unsigned or wrongly-signed request is refused, not
 trusted. Register it in Shopify for the **Order creation** topic.
+
+## The review console
+
+`GET /admin` serves a single-page console for working the queue: filter by
+status with live counts, see each order's preview, approve or reject with a
+reason, pull the print file, and mark it printed.
+
+The page itself carries no data and no credential, so it loads without a
+token — it asks for one, keeps it in `sessionStorage` (not `localStorage`: it
+should not outlive the tab) and sends it on every request. Every data route
+behind it still refuses an unauthenticated call, which the tests assert
+directly so serving the page can never quietly open them up.
+
+Status is encoded as form as well as text — a coloured stripe down each card
+and a pill — so a queue can be read at a glance. Semantic colour is kept
+separate from the accent, so "needs attention" never competes with "this is
+the button".
 
 ## Running it
 

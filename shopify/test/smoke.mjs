@@ -253,6 +253,23 @@ await check('a traversal attempt in an id finds nothing', async () => {
   assert.equal(r.status, 404);
 });
 
+await check('the console page is served without a token', async () => {
+  const r = await fetch(`${base}/admin`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type') || '', /text\/html/);
+  const body = await r.text();
+  assert.match(body, /Encomendas/);
+  // The page must ship no credential of its own.
+  assert.ok(!body.includes(ADMIN_TOKEN), 'console must not embed the admin token');
+});
+
+await check('serving the console did not open up the data routes', async () => {
+  for (const path of ['/admin/queue', '/admin/orders/5001/status', `/admin/designs/${designId}/model.stl`]) {
+    const r = await fetch(base + path);
+    assert.equal(r.status, 401, `${path} should still require a token`);
+  }
+});
+
 // ---------------------------------------------------------------------------
 
 console.log(results.join('\n'));
