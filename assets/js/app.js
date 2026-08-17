@@ -777,6 +777,37 @@ async function load() {
 }
 
 // ---------------------------------------------------------------------------
+// Integration surface
+//
+// What a shop needs from the configurator is the *rasterised mask*, not the
+// finished STL: the mask is what makes the print match the preview the
+// customer approved, and it keeps the model file on the seller's side.
+// ---------------------------------------------------------------------------
+
+window.BimbyCover = {
+  get ready() {
+    return Boolean(lastBuild);
+  },
+
+  /** The current design, ready to POST to the order backend. */
+  getDesign() {
+    const mask = maskFor();
+    if (!mask) return null;
+    renderer.render(scene, camera);
+    return {
+      config: {
+        mode: state.mode,
+        relief: state.stampDepth,
+        cell: state.cell,
+        layers: layers.map(serializeLayer),
+      },
+      maskPng: mask.canvas.toDataURL('image/png'),
+      previewPng: canvas.toDataURL('image/png'),
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
