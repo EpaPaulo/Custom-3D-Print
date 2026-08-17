@@ -34,6 +34,24 @@
       <h2>Capa</h2>
 
       <div class="field">
+        <label>Modelo base</label>
+        <div class="seg" id="base-seg">
+          <button type="button" data-val="template" class="on">Template TM7</button>
+          <button type="button" data-val="custom">Medidas próprias</button>
+        </div>
+      </div>
+
+      <div id="template-info">
+        <dl class="stats">
+          <div><dt>Dimensões</dt><dd id="t-size">—</dd></div>
+          <div><dt>Área utilizável</dt><dd id="t-area">—</dd></div>
+        </dl>
+        <p class="note">Medidas fixas do template — a malha original não é alterada.</p>
+      </div>
+
+      <div id="custom-dims" hidden>
+
+      <div class="field">
         <label>Estilo</label>
         <div class="seg" id="style-seg">
           <button type="button" data-val="shell" class="on">Com rebordo</button>
@@ -55,12 +73,14 @@
 
       <div class="field" id="depth-field"><label for="f-depth">Profundidade do rebordo <output id="o-depth"></output></label>
         <input type="range" id="f-depth" min="2" max="45" step="0.5" value="12"></div>
+
+      </div><!-- /custom-dims -->
     </section>
 
     <section class="group">
       <h2>Relevo</h2>
 
-      <div class="field">
+      <div class="field" id="mode-field">
         <label>Modo</label>
         <div class="seg" id="mode-seg">
           <button type="button" data-val="raised" class="on">Em relevo</button>
@@ -68,7 +88,7 @@
         </div>
       </div>
 
-      <div class="field"><label for="f-stamp">Altura do relevo <output id="o-stamp"></output></label>
+      <div class="field"><label for="f-stamp"><span id="stamp-label">Altura do relevo</span> <output id="o-stamp"></output></label>
         <input type="range" id="f-stamp" min="0.2" max="4" step="0.1" value="1"></div>
       <p class="warn" id="stamp-warn" hidden></p>
 

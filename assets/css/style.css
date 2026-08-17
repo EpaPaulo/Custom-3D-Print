@@ -327,6 +327,12 @@ label.check input { width: auto; accent-color: var(--accent); }
   margin: -4px 0 0;
 }
 
+.note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
 /* ---------- stats ---------- */
 
 .stats { margin: 0 0 4px; }

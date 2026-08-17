@@ -195,5 +195,9 @@ export function renderMask(layers, faceW, faceH, cell) {
   }
   if (!any) return null;
 
-  return { data: gray, w, h, pxPerMm, sat: buildSAT(gray, w, h), canvas };
+  return {
+    data: gray, w, h, pxPerMm, canvas,
+    faceW, faceH,
+    sat: buildSAT(gray, w, h),
+  };
 }

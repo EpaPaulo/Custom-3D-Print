@@ -3,15 +3,18 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildCover } from './geom.js';
 import { renderMask, makeTextLayer, makeImageLayer, FONTS } from './stamp.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
+import { parseSTL, analyseFace, buildStampSolid, buildExportSTL } from './template.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'bimby-cover-v1';
+const TEMPLATE_URL = 'assets/model/tm7-cover.stl';
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
 const DEFAULTS = {
+  mode: 'template',
   style: 'shell',
   width: 230,
   height: 150,
@@ -27,11 +30,25 @@ let state = { ...DEFAULTS };
 let layers = [];
 let selectedId = null;
 
+// The supplied TM7 template: its triangles and the flat face we stamp on.
+let template = null;   // { positions, triangles }
+let face = null;       // analyseFace() result
+
+const isTemplate = () => state.mode === 'template' && template;
+
+// Millimetres of design area available, whichever mode is active.
+function designArea() {
+  return isTemplate()
+    ? { w: face.safeWidth, h: face.safeHeight }
+    : { w: state.width, h: state.height };
+}
+
 // Minimum material left under an engraved stamp.
 const MIN_FLOOR = 0.4;
 
 function maxStampDepth() {
-  if (state.stampMode !== 'engraved') return 4;
+  // Template mode only adds material, so there is no floor to protect.
+  if (isTemplate() || state.stampMode !== 'engraved') return 4;
   return Math.max(0.2, state.wall - MIN_FLOOR);
 }
 
@@ -48,12 +65,17 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x11151b);
 
-const camera = new THREE.PerspectiveCamera(38, 1, 1, 5000);
+// A tight near plane relative to far costs depth precision, which shows up as
+// z-fighting where the design meets the cover face. The part is ~250 mm and is
+// viewed from ~450 mm, so these bounds are generous and much better behaved.
+const camera = new THREE.PerspectiveCamera(38, 1, 20, 3000);
 camera.position.set(0, 0, 420);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
+controls.minDistance = 60;
+controls.maxDistance = 1500;
 
 scene.add(new THREE.HemisphereLight(0xdfe9f5, 0x1a1f26, 1.15));
 
@@ -75,7 +97,23 @@ const material = new THREE.MeshStandardMaterial({
   metalness: 0.04,
 });
 
-let mesh = null;
+const baseMaterial = new THREE.MeshStandardMaterial({
+  color: 0x9fb0c4, roughness: 0.6, metalness: 0.04,
+});
+
+const stampMaterial = new THREE.MeshStandardMaterial({
+  color: 0x4da3ff, roughness: 0.45, metalness: 0.05,
+});
+
+// modelRoot orients the whole cover; holder recentres it so orbiting spins
+// about the middle of the part rather than the STL's own origin.
+const modelRoot = new THREE.Group();
+scene.add(modelRoot);
+const holder = new THREE.Group();
+modelRoot.add(holder);
+
+let mesh = null;        // parametric cover, or the stamp slab in template mode
+let baseMesh = null;    // the untouched template body
 let lastBuild = null;
 
 function resize() {
@@ -107,17 +145,53 @@ let maskCache = { key: null, mask: null };
 function maskFor() {
   // Keyed on everything the mask depends on, but never on dataUrl — comparing
   // megabytes of base64 on every slider tick would cost more than redrawing.
+  const area = designArea();
   const serial = JSON.stringify({
-    w: state.width, h: state.height, c: state.cell,
+    w: area.w, h: area.h, c: state.cell,
     l: layers.map(({ src, _cache, dataUrl, ...rest }) => rest),
   });
   if (maskCache.key === serial) return maskCache.mask;
-  const mask = renderMask(layers, state.width, state.height, state.cell);
+  const mask = renderMask(layers, area.w, area.h, state.cell);
   maskCache = { key: serial, mask };
   return mask;
 }
 
+function clearMesh() {
+  if (mesh) {
+    mesh.geometry.dispose();
+    holder.remove(mesh);
+    mesh = null;
+  }
+}
+
+// Template mode: the STL body is shown as-is and the design is a separate
+// solid laid on its outward face. Nothing about the template is recomputed.
+function rebuildTemplate() {
+  const height = Math.min(state.stampDepth, 4);
+  const slab = buildStampSolid(face, maskFor(), height, state.cell);
+
+  lastBuild = { positions: slab, triangles: slab.length / 9 };
+
+  clearMesh();
+  if (slab.length) {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(slab, 3));
+    geom.computeVertexNormals();
+    mesh = new THREE.Mesh(geom, stampMaterial);
+    holder.add(mesh);
+  }
+
+  const total = template.triangles + slab.length / 9;
+  $('s-dims').textContent =
+    `${face.width.toFixed(1)} × ${face.height.toFixed(1)} mm (fixo)`;
+  $('s-tris').textContent = total.toLocaleString('pt-PT');
+  $('s-size').textContent = `~${((84 + total * 50) / 1048576).toFixed(1)} MB`;
+  $('stamp-warn').hidden = true;
+}
+
 function rebuild() {
+  if (isTemplate()) return rebuildTemplate();
+
   const depth = Math.max(state.wall + 0.6, state.depth);
   const stampDepth = Math.min(state.stampDepth, maxStampDepth());
 
@@ -153,15 +227,13 @@ function rebuild() {
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geom.computeVertexNormals();
 
-  if (mesh) {
-    mesh.geometry.dispose();
-    scene.remove(mesh);
-  }
+  clearMesh();
   mesh = new THREE.Mesh(geom, material);
+  holder.add(mesh);
   // Geometry runs z = 0 .. topZ; centre it so orbiting feels natural.
   const totalDepth = state.style === 'shell' ? depth : state.wall;
-  mesh.position.z = -totalDepth / 2;
-  scene.add(mesh);
+  holder.position.set(0, 0, -totalDepth / 2);
+  modelRoot.rotation.y = 0;
 
   $('s-dims').textContent =
     `${state.width} × ${state.height} × ${totalDepth.toFixed(1)} mm`;
@@ -194,6 +266,42 @@ function scheduleRebuild() {
 }
 
 // ---------------------------------------------------------------------------
+// Template
+// ---------------------------------------------------------------------------
+
+async function loadTemplate() {
+  const res = await fetch(TEMPLATE_URL);
+  if (!res.ok) throw new Error(`template HTTP ${res.status}`);
+  template = parseSTL(await res.arrayBuffer());
+  face = analyseFace(template.positions);
+}
+
+// Attach or detach the template body and set the viewing transform.
+function applyBase() {
+  if (baseMesh) {
+    baseMesh.geometry.dispose();
+    holder.remove(baseMesh);
+    baseMesh = null;
+  }
+  if (!isTemplate()) {
+    modelRoot.rotation.y = 0;
+    holder.position.set(0, 0, 0);
+    return;
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(template.positions, 3));
+  geom.computeVertexNormals();
+  baseMesh = new THREE.Mesh(geom, baseMaterial);
+  holder.add(baseMesh);
+
+  // The stamped face looks along -Z, so turn the part to face the camera and
+  // recentre it. This is presentation only — exported coordinates are untouched.
+  modelRoot.rotation.y = Math.PI;
+  holder.position.set(-face.cx, -face.cy, -5);
+}
+
+// ---------------------------------------------------------------------------
 // Controls
 // ---------------------------------------------------------------------------
 
@@ -214,7 +322,21 @@ function syncControls() {
   $('f-quality').value = String(state.cell);
   for (const b of $('style-seg').children) b.classList.toggle('on', b.dataset.val === state.style);
   for (const b of $('mode-seg').children) b.classList.toggle('on', b.dataset.val === state.stampMode);
-  $('depth-field').hidden = state.style !== 'shell';
+  for (const b of $('base-seg').children) b.classList.toggle('on', b.dataset.val === state.mode);
+
+  const tpl = isTemplate();
+  // The template's dimensions are fixed by the machine, so nothing that would
+  // change them is offered while it is selected.
+  $('custom-dims').hidden = tpl;
+  $('template-info').hidden = !tpl;
+  $('mode-field').hidden = tpl;
+  $('depth-field').hidden = tpl || state.style !== 'shell';
+  $('stamp-label').textContent = tpl ? 'Altura do relevo' : 'Altura do relevo';
+
+  if (tpl && face) {
+    $('t-size').textContent = `${face.width.toFixed(1)} × ${face.height.toFixed(1)} × 10,0 mm`;
+    $('t-area').textContent = `${face.safeWidth.toFixed(0)} × ${face.safeHeight.toFixed(0)} mm`;
+  }
 }
 
 for (const [inp, out, key, fmt] of SLIDERS) {
@@ -228,6 +350,19 @@ for (const [inp, out, key, fmt] of SLIDERS) {
 $('f-quality').addEventListener('change', (e) => {
   state.cell = parseFloat(e.target.value);
   scheduleRebuild();
+});
+
+$('base-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.dataset.val === state.mode) return;
+  state.mode = b.dataset.val;
+  maskCache = { key: null, mask: null };
+  applyBase();
+  syncControls();
+  renderEditor();
+  rebuild();
+  frameCamera([0.55, 0.45, 0.85]);
+  save();
 });
 
 $('style-seg').addEventListener('click', (e) => {
@@ -432,8 +567,9 @@ function renderEditor() {
     host.append(inv, alp);
   }
 
-  const hw = state.width / 2;
-  const hh = state.height / 2;
+  const area = designArea();
+  const hw = area.w / 2;
+  const hh = area.h / 2;
   const px = slider(layer, 'x', -hw, hw, 0.5);
   const py = slider(layer, 'y', -hh, hh, 0.5);
   const rot = slider(layer, 'rotation', -180, 180, 1, '°');
@@ -538,10 +674,12 @@ function loadImage(src) {
 
 function frameCamera(pos) {
   // Fit the bounding sphere, so the cover stays framed from any angle.
-  const depth = state.style === 'shell'
-    ? Math.max(state.wall + 0.6, state.depth)
-    : state.wall;
-  const radius = Math.hypot(state.width / 2, state.height / 2, depth) * 1.08;
+  const depth = isTemplate()
+    ? 10
+    : (state.style === 'shell' ? Math.max(state.wall + 0.6, state.depth) : state.wall);
+  const w = isTemplate() ? face.width : state.width;
+  const h = isTemplate() ? face.height : state.height;
+  const radius = Math.hypot(w / 2, h / 2, depth) * 1.08;
   const vFov = (camera.fov * Math.PI) / 180;
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
   const dist = radius / Math.sin(Math.min(vFov, hFov) / 2);
@@ -562,7 +700,13 @@ $('btn-wire').addEventListener('click', (e) => {
 
 function exportSTL() {
   if (!lastBuild) return;
-  const { buffer, triangles } = trianglesToSTL(lastBuild.positions, 'bimby tm7 cover');
+
+  // In template mode the supplied records are copied through byte for byte and
+  // the design is appended as a second body for the slicer to union.
+  const { buffer, triangles } = isTemplate()
+    ? buildExportSTL(template.source, template.triangles, lastBuild.positions, 'bimby tm7 cover')
+    : trianglesToSTL(lastBuild.positions, 'bimby tm7 cover');
+
   $('s-tris').textContent = triangles.toLocaleString('pt-PT');
   $('s-size').textContent = `${(buffer.byteLength / 1048576).toFixed(1)} MB`;
   downloadBlob(new Blob([buffer], { type: 'model/stl' }), 'capa-bimby-tm7.stl');
@@ -637,12 +781,23 @@ async function load() {
 // ---------------------------------------------------------------------------
 
 (async function boot() {
+  try {
+    await loadTemplate();
+  } catch (err) {
+    console.error('Template could not be loaded:', err);
+    state.mode = 'custom';
+    $('base-seg').hidden = true;
+  }
+
   const restored = await load();
   if (!restored) {
     const l = makeTextLayer();
     layers = [l];
     selectedId = l.id;
   }
+  if (state.mode === 'template' && !template) state.mode = 'custom';
+
+  applyBase();
   syncControls();
   renderLayerList();
   renderEditor();
