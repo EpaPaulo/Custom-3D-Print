@@ -80,6 +80,13 @@ Images are reduced to a two-tone silhouette — this makes a stamp, not a relief
   cannot run all the way through. The app says so when it clamps your setting.
 - A 0.4 mm nozzle resolves white-on-black text down to roughly 6–8 mm cap
   height. Below that the two colours start to bleed into each other.
+- The app measures the design against that limit and says so before you print.
+  It reports two different failures: a whole element too small to survive
+  (found as the narrowest connected piece) and a hairline stroke inside an
+  otherwise healthy shape (found by opening the mask and seeing what does not
+  come back). An opening rounds convex corners, so every shape sheds a little
+  ink however healthy it is; only connected runs above a real area are counted,
+  which is why a clean 1.5 mm bar measures a flat zero.
 
 ## How the geometry works
 

@@ -206,6 +206,150 @@ function silhouette(layer) {
   return canvas;
 }
 
+// ---------------------------------------------------------------------------
+// Printability
+//
+// A colour change only stays crisp while the feature is a few nozzle widths
+// across. Below that the two filaments smear into each other and fine detail
+// arrives as a grey smudge — which the 3D preview will happily show as clean,
+// because the geometry really is clean. The mesh is not the limit; the nozzle
+// is. So the mask is measured before it becomes geometry.
+// ---------------------------------------------------------------------------
+
+// Two passes of chamfer distance. Exact Euclidean would cost more and buy
+// nothing: this is feeding a threshold comparison, not a dimension.
+function distanceToZero(bin, w, h) {
+  const INF = 1e9;
+  const d = new Float32Array(w * h);
+  for (let i = 0; i < d.length; i++) d[i] = bin[i] ? INF : 0;
+
+  const A = 1, B = Math.SQRT2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (d[i] === 0) continue;
+      let m = d[i];
+      if (x > 0) m = Math.min(m, d[i - 1] + A);
+      if (y > 0) m = Math.min(m, d[i - w] + A);
+      if (x > 0 && y > 0) m = Math.min(m, d[i - w - 1] + B);
+      if (x < w - 1 && y > 0) m = Math.min(m, d[i - w + 1] + B);
+      d[i] = m;
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      if (d[i] === 0) continue;
+      let m = d[i];
+      if (x < w - 1) m = Math.min(m, d[i + 1] + A);
+      if (y < h - 1) m = Math.min(m, d[i + w] + A);
+      if (x < w - 1 && y < h - 1) m = Math.min(m, d[i + w + 1] + B);
+      if (x > 0 && y < h - 1) m = Math.min(m, d[i + w - 1] + B);
+      d[i] = m;
+    }
+  }
+  return d;
+}
+
+/**
+ * Measure the design against what a nozzle can hold.
+ *
+ * Two different failures, so two measurements:
+ *   - a whole element too small to survive at all (the dot on an ornament),
+ *     found as the narrowest connected piece;
+ *   - a thin stroke inside an otherwise healthy shape (a hairline serif),
+ *     found by opening the mask and seeing how much ink does not come back.
+ *
+ * minWidthMm is the narrowest feature worth printing, in millimetres.
+ */
+export function inspectMask(mask, minWidthMm) {
+  const { data, w, h, pxPerMm } = mask;
+  const n = w * h;
+
+  const ink = new Uint8Array(n);
+  let inkCount = 0;
+  for (let i = 0; i < n; i++) {
+    if (data[i] >= 0.5) { ink[i] = 1; inkCount++; }
+  }
+  if (!inkCount) return null;
+
+  const d = distanceToZero(ink, w, h);
+  const r = (minWidthMm / 2) * pxPerMm;
+
+  // Smallest complete element: within each connected piece the widest point is
+  // its maximum distance, so twice that is how wide the piece ever gets.
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  let smallestHalf = Infinity;
+
+  for (let s = 0; s < n; s++) {
+    if (!ink[s] || seen[s]) continue;
+    let top = 0, area = 0, maxD = 0;
+    stack[top++] = s;
+    seen[s] = 1;
+    while (top) {
+      const i = stack[--top];
+      area++;
+      if (d[i] > maxD) maxD = d[i];
+      const x = i % w, y = (i - x) / w;
+      if (x > 0 && ink[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[top++] = i - 1; }
+      if (x < w - 1 && ink[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[top++] = i + 1; }
+      if (y > 0 && ink[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[top++] = i - w; }
+      if (y < h - 1 && ink[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[top++] = i + w; }
+    }
+    // Ignore specks a few pixels across: they are rasteriser noise, not design.
+    if (area > 4 && maxD < smallestHalf) smallestHalf = maxD;
+  }
+
+  // Opening: keep only what a disc of radius r can reach while staying inside
+  // the ink. Whatever does not come back was thinner than minWidthMm.
+  const notCore = new Uint8Array(n);
+  for (let i = 0; i < n; i++) notCore[i] = d[i] >= r ? 0 : 1;
+  const fromCore = distanceToZero(notCore, w, h);
+
+  const thin = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (ink[i] && fromCore[i] > r) thin[i] = 1;
+  }
+
+  // An opening rounds convex corners, so every shape sheds a little ink at its
+  // corners however healthy it is — a clean 1.5 mm bar loses about half a
+  // percent that way. Those crumbs are a fraction of a square millimetre each,
+  // while a hairline stroke is one long connected run. Counting only runs
+  // above a real area separates the two instead of tuning a threshold until
+  // the fixtures happen to pass.
+  const minRun = 2 * (minWidthMm * pxPerMm) * (minWidthMm * pxPerMm);
+  seen.fill(0);
+  let thinPixels = 0;
+
+  for (let s = 0; s < n; s++) {
+    if (!thin[s] || seen[s]) continue;
+    let top = 0, area = 0;
+    const members = [];
+    stack[top++] = s;
+    seen[s] = 1;
+    while (top) {
+      const i = stack[--top];
+      area++;
+      members.push(i);
+      const x = i % w, y = (i - x) / w;
+      if (x > 0 && thin[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[top++] = i - 1; }
+      if (x < w - 1 && thin[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[top++] = i + 1; }
+      if (y > 0 && thin[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[top++] = i - w; }
+      if (y < h - 1 && thin[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[top++] = i + w; }
+    }
+    if (area >= minRun) thinPixels += area;
+  }
+
+  const perMm2 = pxPerMm * pxPerMm;
+  return {
+    minFeatureMm: Number.isFinite(smallestHalf) ? (smallestHalf * 2) / pxPerMm : Infinity,
+    thinFraction: thinPixels / inkCount,
+    thinAreaMm2: thinPixels / perMm2,
+    inkAreaMm2: inkCount / perMm2,
+  };
+}
+
 function drawTextLayer(ctx, layer, pxPerMm) {
   const sizePx = layer.size * pxPerMm;
   if (sizePx < 1) return;

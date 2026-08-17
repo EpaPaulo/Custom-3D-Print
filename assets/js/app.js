@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildCover } from './geom.js';
-import { renderMask, makeTextLayer, makeImageLayer, autoThreshold, FONTS } from './stamp.js';
+import {
+  renderMask, makeTextLayer, makeImageLayer, autoThreshold, inspectMask, FONTS,
+} from './stamp.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
 import { parseSTL, analyseFace, buildInlaySolid, buildExportSTL } from './template.js';
 
@@ -171,6 +173,50 @@ function maskFor() {
   return mask;
 }
 
+// Two nozzle widths at 0.4 mm. Below this a colour change stops being a clean
+// edge, and the preview cannot show that — the geometry is exact, the print is
+// not.
+const MIN_FEATURE_MM = 0.8;
+
+// Measuring the mask costs a couple of passes, so it is cached alongside it
+// rather than recomputed on every slider tick.
+let detailCache = { mask: null, report: null };
+
+function detailReport(mask) {
+  if (!mask) return null;
+  if (detailCache.mask === mask) return detailCache.report;
+  const report = inspectMask(mask, MIN_FEATURE_MM);
+  detailCache = { mask, report };
+  return report;
+}
+
+function showDetailWarning(mask) {
+  const el = $('detail-warn');
+  if (!el) return;
+  const r = detailReport(mask);
+  if (!r) { el.hidden = true; return; }
+
+  const tooSmall = r.minFeatureMm < MIN_FEATURE_MM;
+  // Corner crumbs are filtered out upstream, so a healthy design measures a
+  // flat zero here and anything at all is a real stroke.
+  const tooThin = r.thinFraction > 0.005;
+  if (!tooSmall && !tooThin) { el.hidden = true; return; }
+
+  const mm = (v) => v.toFixed(1).replace('.', ',');
+  const parts = [];
+  if (tooSmall) {
+    parts.push(`o elemento mais pequeno mede ${mm(r.minFeatureMm)} mm`);
+  }
+  if (tooThin) {
+    parts.push(`${Math.round(r.thinFraction * 100)}% do desenho tem traços finos`);
+  }
+  el.hidden = false;
+  el.textContent =
+    `Detalhe no limite: ${parts.join(' e ')}. Abaixo de ${mm(MIN_FEATURE_MM)} mm ` +
+    '(dois filetes de um bico de 0,4) a mudança de cor pode não sair limpa. ' +
+    'Aumente o tamanho da camada ou simplifique o desenho.';
+}
+
 // Shop mode strips the results panel, so writing a stat is best-effort.
 function setStat(id, text) {
   const el = $(id);
@@ -205,7 +251,9 @@ function showInlay(positions, dir) {
 // solid laid on its outward face. Nothing about the template is recomputed.
 function rebuildTemplate() {
   const depth = Math.min(state.colourDepth, maxColourDepth());
-  const inlay = buildInlaySolid(surfaceOf(), maskFor(), depth, state.cell);
+  const mask = maskFor();
+  const inlay = buildInlaySolid(surfaceOf(), mask, depth, state.cell);
+  showDetailWarning(mask);
 
   lastBuild = { cover: template.positions, inlay };
 
@@ -240,7 +288,9 @@ function rebuild() {
   });
 
   const colourDepth = Math.min(state.colourDepth, maxColourDepth());
-  const inlay = buildInlaySolid(surfaceOf(topZ), maskFor(), colourDepth, state.cell);
+  const mask = maskFor();
+  const inlay = buildInlaySolid(surfaceOf(topZ), mask, colourDepth, state.cell);
+  showDetailWarning(mask);
 
   lastBuild = { cover: built.positions, inlay };
 
