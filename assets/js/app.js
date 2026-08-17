@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildCover } from './geom.js';
-import { renderMask, makeTextLayer, makeImageLayer, FONTS } from './stamp.js';
+import { renderMask, makeTextLayer, makeImageLayer, autoThreshold, FONTS } from './stamp.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
 import { parseSTL, analyseFace, buildInlaySolid, buildExportSTL } from './template.js';
 
@@ -630,6 +630,9 @@ $('file-image').addEventListener('change', async (e) => {
     const original = await readAsDataURL(file);
     const img = await loadImage(original);
     const layer = makeImageLayer(file.name, img, img.naturalWidth / img.naturalHeight);
+    // Measured from the artwork itself, so a logo in more than one ink arrives
+    // whole rather than losing whichever parts sit near the default cutoff.
+    layer.threshold = autoThreshold(img);
     // Stamps are thresholded to a silhouette, so a downscaled copy loses
     // nothing and keeps the saved design inside the localStorage quota.
     layer.dataUrl = shrinkDataURL(img, original);
