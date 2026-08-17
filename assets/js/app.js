@@ -9,6 +9,15 @@ const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'bimby-cover-v1';
 const TEMPLATE_URL = 'assets/model/tm7-cover.stl';
 
+// Embedding options, read from the query string.
+//   ?embed=1  drop the page's own header — the host page has its own
+//   ?shop=1   selling context: no STL download, template only
+// Handing a shopper the STL would give away the product, so shop mode removes
+// every route to it rather than merely hiding the buttons.
+const params = new URLSearchParams(location.search);
+const EMBED = params.has('embed') || params.has('shop');
+const SHOP = params.has('shop');
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -156,6 +165,12 @@ function maskFor() {
   return mask;
 }
 
+// Shop mode strips the results panel, so writing a stat is best-effort.
+function setStat(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
 function clearMesh() {
   if (mesh) {
     mesh.geometry.dispose();
@@ -182,10 +197,9 @@ function rebuildTemplate() {
   }
 
   const total = template.triangles + slab.length / 9;
-  $('s-dims').textContent =
-    `${face.width.toFixed(1)} × ${face.height.toFixed(1)} mm (fixo)`;
-  $('s-tris').textContent = total.toLocaleString('pt-PT');
-  $('s-size').textContent = `~${((84 + total * 50) / 1048576).toFixed(1)} MB`;
+  setStat('s-dims', `${face.width.toFixed(1)} × ${face.height.toFixed(1)} mm (fixo)`);
+  setStat('s-tris', total.toLocaleString('pt-PT'));
+  setStat('s-size', `~${((84 + total * 50) / 1048576).toFixed(1)} MB`);
   $('stamp-warn').hidden = true;
 }
 
@@ -235,10 +249,9 @@ function rebuild() {
   holder.position.set(0, 0, -totalDepth / 2);
   modelRoot.rotation.y = 0;
 
-  $('s-dims').textContent =
-    `${state.width} × ${state.height} × ${totalDepth.toFixed(1)} mm`;
-  $('s-tris').textContent = built.triangles.toLocaleString('pt-PT');
-  $('s-size').textContent = `~${((84 + built.triangles * 50) / 1048576).toFixed(1)} MB`;
+  setStat('s-dims', `${state.width} × ${state.height} × ${totalDepth.toFixed(1)} mm`);
+  setStat('s-tris', built.triangles.toLocaleString('pt-PT'));
+  setStat('s-size', `~${((84 + built.triangles * 50) / 1048576).toFixed(1)} MB`);
 
   const warn = $('stamp-warn');
   if (state.stampMode === 'engraved' && state.stampDepth > maxStampDepth() + 1e-6) {
@@ -262,6 +275,7 @@ function scheduleRebuild() {
     }
     $('busy').hidden = true;
     save();
+    announce('bimby:change');
   }, 180);
 }
 
@@ -322,7 +336,10 @@ function syncControls() {
   $('f-quality').value = String(state.cell);
   for (const b of $('style-seg').children) b.classList.toggle('on', b.dataset.val === state.style);
   for (const b of $('mode-seg').children) b.classList.toggle('on', b.dataset.val === state.stampMode);
-  for (const b of $('base-seg').children) b.classList.toggle('on', b.dataset.val === state.mode);
+  const baseSeg = $('base-seg');
+  if (baseSeg) {
+    for (const b of baseSeg.children) b.classList.toggle('on', b.dataset.val === state.mode);
+  }
 
   const tpl = isTemplate();
   // The template's dimensions are fixed by the machine, so nothing that would
@@ -352,7 +369,7 @@ $('f-quality').addEventListener('change', (e) => {
   scheduleRebuild();
 });
 
-$('base-seg').addEventListener('click', (e) => {
+$('base-seg')?.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b || b.dataset.val === state.mode) return;
   state.mode = b.dataset.val;
@@ -699,7 +716,9 @@ $('btn-wire').addEventListener('click', (e) => {
 });
 
 function exportSTL() {
-  if (!lastBuild) return;
+  // Belt and braces: the buttons are gone in shop mode, but the function is
+  // reachable from the console, and the model is the thing being sold.
+  if (SHOP || !lastBuild) return;
 
   // In template mode the supplied records are copied through byte for byte and
   // the design is appended as a second body for the slicer to union.
@@ -712,15 +731,15 @@ function exportSTL() {
   downloadBlob(new Blob([buffer], { type: 'model/stl' }), 'capa-bimby-tm7.stl');
 }
 
-$('btn-stl').addEventListener('click', exportSTL);
-$('btn-stl-2').addEventListener('click', exportSTL);
+$('btn-stl')?.addEventListener('click', exportSTL);
+$('btn-stl-2')?.addEventListener('click', exportSTL);
 
 $('btn-snapshot').addEventListener('click', () => {
   renderer.render(scene, camera);
   canvas.toBlob((b) => b && downloadBlob(b, 'capa-bimby-previsualizacao.png'), 'image/png');
 });
 
-$('btn-reset').addEventListener('click', () => {
+$('btn-reset')?.addEventListener('click', () => {
   if (!confirm('Repor todas as definições e remover as camadas?')) return;
   state = { ...DEFAULTS };
   layers = [];
@@ -807,17 +826,57 @@ window.BimbyCover = {
   },
 };
 
+// A shop embeds this page in an iframe, so the same API is reachable by
+// postMessage. Replies go back only to the window and origin that asked.
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (!msg || msg.type !== 'bimby:getDesign' || !event.source) return;
+  let design = null;
+  try {
+    design = window.BimbyCover.getDesign();
+  } catch (err) {
+    console.error(err);
+  }
+  const target = event.origin && event.origin !== 'null' ? event.origin : '*';
+  event.source.postMessage({ type: 'bimby:design', requestId: msg.requestId, design }, target);
+});
+
+// Nothing identifying here, just "there is something to buy" — safe to
+// broadcast so the host page can enable its button.
+function announce(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({
+    type,
+    hasDesign: layers.some((l) => l.visible !== false),
+    mode: state.mode,
+  }, '*');
+}
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
+function applyEmbedMode() {
+  if (EMBED) document.body.classList.add('embed');
+  if (!SHOP) return;
+
+  document.body.classList.add('shop');
+  // Only the template is a product, so the base switch has nothing to offer,
+  // and triangle counts are not something a shopper needs.
+  state.mode = 'template';
+  for (const el of [$('btn-stl'), $('base-field'), $('result-group')]) {
+    if (el) el.remove();
+  }
+}
+
 (async function boot() {
+  applyEmbedMode();
   try {
     await loadTemplate();
   } catch (err) {
     console.error('Template could not be loaded:', err);
     state.mode = 'custom';
-    $('base-seg').hidden = true;
+    if ($('base-seg')) $('base-seg').hidden = true;
   }
 
   const restored = await load();
@@ -837,4 +896,5 @@ window.BimbyCover = {
   rebuild();
   $('busy').hidden = true;
   animate();
+  announce('bimby:ready');
 })();

@@ -31,13 +31,18 @@ export async function addPersonalisedToCart(opts) {
     variantId,
     quantity = 1,
     previewLabel = 'Pré-visualização',
+    frame = null,
+    frameOrigin = '*',
   } = opts || {};
 
   if (!apiBase) throw new BridgeError('apiBase is required.');
   if (!variantId) throw new BridgeError('variantId is required.');
 
   const api = String(apiBase).replace(/\/+$/, '');
-  const design = readDesign();
+  const design = frame
+    ? await readDesignFromFrame(frame, frameOrigin)
+    : readDesign();
+  assertOrderable(design);
 
   const created = await postJson(`${api}/api/designs`, {
     config: design.config,
@@ -64,15 +69,47 @@ function readDesign() {
   if (!api || typeof api.getDesign !== 'function') {
     throw new BridgeError('The configurator is not loaded on this page.');
   }
-  const design = api.getDesign();
+  return api.getDesign();
+}
+
+// The configurator usually sits in an iframe, so ask it across the boundary.
+function readDesignFromFrame(frame, origin) {
+  const target = frame.contentWindow;
+  if (!target) throw new BridgeError('The configurator frame is not ready yet.');
+
+  return new Promise((resolve, reject) => {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new BridgeError('The configurator did not respond.'));
+    }, 15000);
+
+    function onMessage(event) {
+      const msg = event.data;
+      if (!msg || msg.type !== 'bimby:design' || msg.requestId !== requestId) return;
+      cleanup();
+      resolve(msg.design);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+    }
+
+    window.addEventListener('message', onMessage);
+    target.postMessage({ type: 'bimby:getDesign', requestId }, origin);
+  });
+}
+
+function assertOrderable(design) {
   if (!design) {
-    throw new BridgeError('Add some text or an image before adding to the basket.');
+    throw new BridgeError('Adicione texto ou uma imagem antes de comprar.');
   }
   if (design.config.mode !== 'template') {
     // Custom sizes are a design tool, not a product: the shop prints one cover.
-    throw new BridgeError('Only the standard TM7 cover can be ordered.');
+    throw new BridgeError('Só a capa TM7 padrão pode ser encomendada.');
   }
-  return design;
 }
 
 async function postJson(url, body) {
@@ -95,28 +132,35 @@ async function postJson(url, body) {
 
 // Convenience for themes that would rather not write any JavaScript: put
 // data-cover-add and data-variant-id on a button and this wires itself up.
-export function autoWire(apiBase) {
+export function autoWire(apiBase, options = {}) {
+  const { frameSelector = '[data-cover-frame]', onAdded = null } = options;
+
   document.addEventListener('click', async (event) => {
     const btn = event.target.closest('[data-cover-add]');
     if (!btn) return;
     event.preventDefault();
 
+    const errorEl = document.querySelector('[data-cover-error]');
+    if (errorEl) errorEl.textContent = '';
+
     const previous = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'A adicionar…';
     try {
-      await addPersonalisedToCart({
+      const result = await addPersonalisedToCart({
         apiBase,
         variantId: btn.dataset.variantId,
         quantity: Number(btn.dataset.quantity || 1),
+        frame: document.querySelector(frameSelector),
       });
-      window.location.href = '/cart';
+      if (onAdded) onAdded(result);
+      else window.location.href = '/cart';
     } catch (err) {
+      if (errorEl) errorEl.textContent = err.message;
+      else alert(err.message);
+    } finally {
       btn.disabled = false;
       btn.textContent = previous;
-      const target = document.querySelector('[data-cover-error]');
-      if (target) target.textContent = err.message;
-      else alert(err.message);
     }
   });
 }

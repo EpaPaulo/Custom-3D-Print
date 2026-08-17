@@ -362,3 +362,14 @@ label.check input { width: auto; accent-color: var(--accent); }
   .viewport { order: 1; height: 58vh; min-height: 320px; }
   .topbar { flex-wrap: wrap; }
 }
+
+/* ---------- embedded in a host page ---------- */
+
+body.embed .topbar { display: none; }
+
+/* No layout override here on purpose: an embed is usually narrower than the
+   standalone page, so it should fall into the stacked layout and give the
+   3D view the full width. It only needs more height than the phone default. */
+@media (max-width: 860px) {
+  body.embed .viewport { height: 62vh; min-height: 340px; }
+}

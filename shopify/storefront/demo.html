@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capa Personalizada TM7 — demonstração de loja</title>
+<style>
+  :root {
+    --ink: #16191d;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --accent: #1c6fd4;
+    --ok: #0f8a4a;
+    --bg: #fff;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+
+  .banner {
+    background: #fff8e6; border-bottom: 1px solid #f0dfae; color: #6b5316;
+    font-size: 13px; padding: 8px 20px; text-align: center;
+  }
+  .banner strong { color: #4d3c0a; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 28px; border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; letter-spacing: -.02em; font-size: 18px; }
+  .brand span { color: var(--accent); }
+  nav { display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 28px; }
+  .product { display: grid; grid-template-columns: 1.6fr 1fr; gap: 36px; align-items: start; }
+
+  .stage {
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: #0f1216; position: relative;
+  }
+  .stage iframe { display: block; width: 100%; height: 720px; border: 0; }
+
+  h1 { font-size: 27px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+  .price { font-size: 30px; font-weight: 700; margin: 0 0 4px; }
+  .vat { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+
+  .opt { margin-bottom: 18px; }
+  .opt > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch {
+    border: 1.5px solid var(--line); background: #fff; border-radius: 9px;
+    padding: 7px 13px; font: inherit; font-size: 13px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .swatch:hover { border-color: #b9c2cd; }
+  .swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(28,111,212,.14); }
+  .dot { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); }
+
+  .qty { width: 78px; padding: 9px 10px; border: 1.5px solid var(--line); border-radius: 9px; font: inherit; }
+
+  .cta {
+    width: 100%; background: var(--accent); color: #fff; border: 0;
+    border-radius: 10px; padding: 15px; font: inherit; font-size: 16px;
+    font-weight: 650; cursor: pointer; margin-top: 4px;
+  }
+  .cta:hover:not(:disabled) { background: #175db2; }
+  .cta:disabled { background: #b6c4d4; cursor: not-allowed; }
+
+  .err { color: #b42318; font-size: 13px; margin: 10px 0 0; min-height: 18px; }
+
+  .added {
+    margin-top: 14px; border: 1px solid #bfe3cd; background: #f2fbf5;
+    border-radius: 10px; padding: 12px 14px; display: none; gap: 12px; align-items: center;
+  }
+  .added.on { display: flex; }
+  .added img { width: 62px; height: 46px; object-fit: cover; border-radius: 6px; border: 1px solid #cfe6d8; background: #fff; }
+  .added b { display: block; font-size: 13px; color: var(--ok); }
+  .added code { font-size: 11px; color: var(--muted); word-break: break-all; }
+
+  .facts { list-style: none; margin: 22px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); }
+  .facts li { display: flex; gap: 10px; font-size: 14px; color: #3d444d; padding: 5px 0; }
+  .facts svg { flex: 0 0 auto; margin-top: 3px; color: var(--ok); }
+
+  .legal { margin-top: 18px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+
+  @media (max-width: 940px) {
+    .product { grid-template-columns: 1fr; }
+    .stage iframe { height: 560px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <strong>Demonstração.</strong>
+  Página de produto simulada — o carrinho do Shopify está substituído por um stub,
+  mas o desenho é mesmo enviado para o backend de encomendas.
+</div>
+
+<header>
+  <div class="brand">epalfer<span>.</span>shop</div>
+  <nav><span>Loja</span><span>Sobre</span><span>Contacto</span><span>Carrinho (0)</span></nav>
+</header>
+
+<div class="wrap">
+  <div class="product">
+
+    <div class="stage">
+      <iframe data-cover-frame src="../../index.html?shop=1" title="Personalizador de capa"></iframe>
+    </div>
+
+    <div>
+      <h1>Capa personalizada para Bimby TM7</h1>
+      <p class="sub">Impressa em 3D por encomenda, com o seu texto ou logótipo em relevo.</p>
+
+      <p class="price">29,90 €</p>
+      <p class="vat">IVA incluído. Envio calculado no checkout.</p>
+
+      <div class="opt">
+        <span>Cor</span>
+        <div class="swatches" id="colours">
+          <button class="swatch" aria-pressed="true"  data-variant="45210987654321"><i class="dot" style="background:#22262b"></i>Preto mate</button>
+          <button class="swatch" aria-pressed="false" data-variant="45210987654322"><i class="dot" style="background:#f2f2ef"></i>Branco</button>
+          <button class="swatch" aria-pressed="false" data-variant="45210987654323"><i class="dot" style="background:#9aa6b2"></i>Cinza pedra</button>
+          <button class="swatch" aria-pressed="false" data-variant="45210987654324"><i class="dot" style="background:#1c6fd4"></i>Azul</button>
+        </div>
+      </div>
+
+      <div class="opt">
+        <span>Quantidade</span>
+        <input class="qty" type="number" id="qty" value="1" min="1" max="10">
+      </div>
+
+      <button class="cta" data-cover-add data-variant-id="45210987654321" disabled>
+        A carregar o personalizador…
+      </button>
+      <p class="err" data-cover-error></p>
+
+      <div class="added" id="added">
+        <img id="added-img" alt="Pré-visualização da capa encomendada">
+        <div>
+          <b>Adicionado ao carrinho</b>
+          <code id="added-id"></code>
+        </div>
+      </div>
+
+      <ul class="facts">
+        <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
+            Encaixa no ecrã de 10" do TM7 — 253,4 × 172,4 mm.</li>
+        <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
+            Relevo até 4 mm, em PLA ou PETG.</li>
+        <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
+            Cada desenho é revisto por nós antes de ir para a impressora.</li>
+        <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
+            Expedição em 3–5 dias úteis.</li>
+      </ul>
+
+      <p class="legal">
+        Artigo personalizado, feito à sua medida: nos termos do artigo 16.º, alínea c),
+        da Diretiva 2011/83/UE, não se aplica o direito de livre resolução de 14 dias.
+        Confirme a pré-visualização antes de comprar.
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+  import { autoWire } from './configurator-bridge.js';
+
+  // Point this at your deployed backend.
+  const API_BASE = new URLSearchParams(location.search).get('api')
+    || 'http://localhost:3111';
+
+  const cta = document.querySelector('[data-cover-add]');
+  const qty = document.getElementById('qty');
+
+  // The configurator announces itself once it has something to show.
+  window.addEventListener('message', (e) => {
+    if (!e.data || (e.data.type !== 'bimby:ready' && e.data.type !== 'bimby:change')) return;
+    cta.disabled = false;
+    cta.textContent = 'Adicionar ao carrinho';
+    cta.dataset.quantity = qty.value;
+  });
+
+  document.getElementById('colours').addEventListener('click', (e) => {
+    const btn = e.target.closest('.swatch');
+    if (!btn) return;
+    for (const b of e.currentTarget.children) b.setAttribute('aria-pressed', String(b === btn));
+    cta.dataset.variantId = btn.dataset.variant;
+  });
+
+  qty.addEventListener('input', () => { cta.dataset.quantity = qty.value; });
+
+  // Standing in for Shopify's /cart/add.js, which does not exist off-platform.
+  const realFetch = window.fetch;
+  window.fetch = (url, opts) => (String(url).startsWith('/cart/add.js')
+    ? Promise.resolve(new Response(
+        JSON.stringify({ items: [{ id: 1, quantity: Number(qty.value) }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    : realFetch(url, opts));
+
+  autoWire(API_BASE, {
+    onAdded({ designId }) {
+      document.getElementById('added').classList.add('on');
+      document.getElementById('added-id').textContent = `_design_id: ${designId}`;
+      document.getElementById('added-img').src = `${API_BASE}/api/designs/${designId}/preview.png`;
+      document.querySelector('nav').lastElementChild.textContent = 'Carrinho (1)';
+    },
+  });
+</script>
+
+</body>
+</html>

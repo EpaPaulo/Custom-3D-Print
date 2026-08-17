@@ -97,6 +97,15 @@ npm test                  # 14 checks, real HTTP against a temp data dir
 
 ## Storefront wiring
 
+`storefront/demo.html` is a working product page — open it with both servers
+running to see the whole flow. It stubs Shopify's `/cart/add.js`, which does
+not exist off-platform, but the design really is sent to the backend.
+
+Embed the configurator with **`?shop=1`**. That mode drops its own header, the
+base-model switch and, critically, every route to the STL — including the
+export function itself, not just the buttons. Handing a shopper the model would
+give away the product.
+
 Add the configurator and `storefront/configurator-bridge.js` to the product
 page (theme app extension, or a `<script type="module">`), then:
 
@@ -106,15 +115,18 @@ page (theme app extension, or a `<script type="module">`), then:
 </button>
 <p data-cover-error></p>
 
+<iframe data-cover-frame src="https://your-configurator/index.html?shop=1"></iframe>
+
 <script type="module">
   import { autoWire } from '{{ 'configurator-bridge.js' | asset_url }}';
   autoWire('https://orders.yourdomain.com');
 </script>
 ```
 
-The bridge reads `window.BimbyCover.getDesign()`, which the configurator
-exposes. It refuses anything built in *medidas próprias* — custom sizes are a
-design tool, not a product you print.
+The bridge asks the configurator for the design over `postMessage` when it is
+in an iframe, or reads `window.BimbyCover.getDesign()` directly when both live
+on the same page. Either way it refuses anything built in *medidas próprias* —
+custom sizes are a design tool, not a product you print.
 
 `_design_id` is underscore-prefixed, Shopify's convention for a property hidden
 from the customer-facing cart. It still shows on the order in your admin, which
