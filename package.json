@@ -1,0 +1,13 @@
+{
+  "name": "epa-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personalizador de capa Bimby TM7 — static site. The site itself has no build step; esbuild is only needed to produce the single-file artifact copy.",
+  "scripts": {
+    "artifact": "node tools/build-artifact.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -98,12 +98,30 @@ assets/js/stamp.js            text/image layers -> grayscale mask
 assets/js/stl.js              binary STL writer
 assets/js/app.js              viewer, UI, export
 assets/model/tm7-cover.stl    the supplied template, unmodified
+tools/build-artifact.mjs      single-file build for publishing
 vendor/                       three.js r160 (vendored, no CDN)
 ```
 
 `geom.js`, `template.js` and `stl.js` have no DOM dependencies and run
 unchanged under Node, so STLs can be generated server-side from stored design
 parameters.
+
+## Single-file build
+
+`npm run artifact` bundles the whole thing into one self-contained HTML file
+under `dist/` — three.js, the app, the stylesheet and the template STL all
+inlined, no external requests at all. It is what gets published as a Claude
+Artifact, and it also works straight from `file://`.
+
+Nothing in `assets/` changes to make that build work; the two differences live
+in `tools/build-artifact.mjs`. `fetch` is shimmed to answer the template
+request from the embedded copy, and the STL buttons are hidden because the
+artifact viewer's save allowlist has no `.stl` entry — it offers the preview
+PNG instead. The build fails rather than publishing if the page ends up
+referencing another origin, since the artifact CSP would block it.
+
+esbuild is the only dependency, and only for this; the site itself still has
+no build step.
 
 ## Running locally
 
