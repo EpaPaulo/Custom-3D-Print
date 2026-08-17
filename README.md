@@ -1,8 +1,12 @@
 # Personalizador de Capa Bimby TM7
 
 A browser app for personalising a 3D-printable **Thermomix TM7 display cover**.
-Add text and images, see the result stamped on the cover in a live 3D preview,
-then download a print-ready STL.
+Add text and images, see them on the cover in a live 3D preview, then download
+the two print-ready STLs.
+
+The cover prints **black** and the design prints **white**, flush with the
+surface. There is no relief: the colour change happens in the first few layers,
+so the two filaments meet level with each other.
 
 Everything runs client-side — no server, no build step, no upload of your
 images anywhere. Drop it on GitHub Pages and it works.
@@ -14,22 +18,32 @@ images anywhere. Drop it on GitHub Pages and it works.
      253.4 × 172.4 × 10 mm. Its dimensions are what make it fit the machine, so
      they are not adjustable and the mesh is never modified.
    - *Medidas próprias* — the parametric generator, for any size you like.
-2. **Relevo** — how tall the design stands proud of the cover. In *medidas
-   próprias* you can also engrave. Mesh quality trades file size for detail.
+2. **Cor** — how deep the white runs into the cover, in millimetres. 0.6 mm is
+   three layers at 0.2 mm, which is plenty for full opacity. Contour quality
+   trades file size for how smooth the letter edges come out.
 3. **Camadas** — add text or image layers, then position, scale and rotate
    each one. Layers stack in list order.
-4. **Descarregar STL** — writes a binary STL in millimetres.
+4. **Two STLs** — the cover and the design, both in millimetres.
 
 Your design is kept in `localStorage`, so a refresh won't lose it.
 
+### Printing the two files
+
+STL carries no notion of parts or colour, so the two bodies have to stay two
+files — merged into one they would print in a single colour. In the slicer,
+load both as *one object with two parts*: they share a coordinate system, so
+they land aligned, and you then assign a filament to each.
+
+The design body's surface sits exactly on the cover's face and runs inward, so
+it occupies the cover rather than sitting on it. Print face-down and the colour
+change happens in the first few layers.
+
 ### How the template stays intact
 
-The design is emitted as a **separate closed solid** laid on the cover's
-outward face, overlapping it by 0.6 mm. Every slicer unions overlapping bodies
-on import, so it prints as one part — while the template's 8,044 triangle
-records are copied into the export byte for byte, normals and all. Nothing is
-re-tessellated, re-normalised or repaired, so what you print is dimensionally
-the file you supplied.
+The template's 8,044 triangle records are copied into the cover export byte for
+byte, normals and all. Nothing is re-tessellated, re-normalised or repaired, and
+the design never crosses the face plane outward — so what you print is
+dimensionally the file you supplied.
 
 The usable design area is 236 × 155 mm: the full face inset far enough to clear
 its 23.2 mm corner radius.
@@ -60,32 +74,41 @@ Images are reduced to a two-tone silhouette — this makes a stamp, not a relief
 ## Printing notes
 
 - The model is exported in millimetres and sits flat on Z = 0, ready to slice.
-- Print the cover face-down on the bed for the cleanest stamped surface.
-- Engraved depth is capped at `wall thickness − 0.4 mm` so there is always
-  material under the design; the app tells you when it clamps your setting.
-- A 0.4 mm nozzle resolves raised text down to roughly 8–10 mm cap height.
-  Below that, prefer engraved.
+- Print the cover face-down on the bed: that puts the design in the first
+  layers, where the colour change belongs.
+- Colour depth is capped at the cover's own thickness — the second filament
+  cannot run all the way through. The app says so when it clamps your setting.
+- A 0.4 mm nozzle resolves white-on-black text down to roughly 6–8 mm cap
+  height. Below that the two colours start to bleed into each other.
 
 ## How the geometry works
 
 Text and images are rasterised to a grayscale mask, which is box-filtered
 through a summed-area table so the grid samples it without aliasing.
 
-**Template mode** locates the outward face automatically — the lowest Z plane
-carrying downward triangles — and builds the design as a closed slab over it.
-Layer coordinates are the face as you look at it; since that face's normal
-points along −Z, mapping to world space mirrors X, and a reflection reverses
-winding, so every triangle is emitted with two vertices swapped to keep it
-facing outward.
+The design body comes from **marching triangles** over that mask. The marching
+*squares* case has an ambiguous saddle whose two readings differ, and the wrong
+reading joins letterforms that should stay apart; splitting each cell into two
+triangles removes the ambiguity, and every region it produces is convex, so a
+fan triangulation of it is always valid. Walls are emitted only along the
+contour itself — never along a cell edge shared with a neighbour — which is what
+keeps the result closed.
 
-**Parametric mode** builds the stamped face as a **Coons patch** over a rounded
+**Template mode** locates the outward face automatically: the lowest Z plane
+carrying downward triangles. Layer coordinates are the face as you look at it;
+since that face's normal points along −Z, mapping to world space mirrors X, and
+a reflection reverses winding, so every triangle is emitted with two vertices
+swapped to keep it facing outward.
+
+**Parametric mode** builds the cover as a **Coons patch** over a rounded
 rectangle, so the quad grid conforms exactly to the outline instead of being
-clipped to it, then displaces every vertex along Z. Walls are sewn to the
-*displaced* boundary ring, so a design may run right off the edge without
-opening a hole. No CSG library is involved in either mode.
+clipped to it. No CSG library is involved in either mode.
 
 Mesh integrity is checked by matching every directed edge with its reverse and
-confirming the signed volume is positive.
+confirming the signed volume is positive. Zero non-manifold edges is only
+achievable when the shape itself is manifold: regions that touch at a single
+point share a vertical edge once the design has thickness, and four faces meet
+there by construction.
 
 ## Layout
 

@@ -3,6 +3,9 @@
 Turns a design made in the configurator into a print file you hold, and an
 order you can review before it reaches a printer.
 
+The cover prints black and the design prints white, flush with the surface —
+no relief. Two bodies, two filaments.
+
 The customer never receives an STL. They design, they see a preview, they buy;
 you get the model. That is the whole point of the split — hand over the STL and
 you have sold the thing that lets anyone print it forever.
@@ -47,9 +50,9 @@ code, from the fixed template. The customer supplies a bounded greyscale image;
 they can never hand you triangles to put on a printer. Uploading a finished STL
 would be the dangerous design, and this is not that.
 
-Verified: an STL rendered by this service from a real browser design is
-byte-for-byte the template plus the same 9,116 design triangles the browser
-itself produces.
+The design body's surface sits exactly on the cover's face and runs inward, so
+it occupies the cover rather than standing on it — which is what makes the two
+filaments meet flush.
 
 ## Endpoints
 
@@ -69,11 +72,18 @@ itself produces.
 | `GET /admin` | the review console (HTML, no token needed to load) |
 | `GET /admin/queue?status=pending_review` | orders awaiting review |
 | `POST /admin/orders/:id/status` | `{ status, note }` — approve / reject / printed |
-| `GET /admin/designs/:id/model.stl` | the print file |
+| `GET /admin/cover.stl` | the black cover — same every order, fetch once |
+| `GET /admin/designs/:id/model.stl` | the white design body for this order |
 
 `model.stl` refuses a design whose order has not been approved (`409`). Pass
 `?force=1` to override for a design with no order behind it — a sample, or a
 proof for a customer.
+
+Only the design varies per order, so the cover is not reissued each time. In
+the slicer, load the two as *one object with two parts* — they share a
+coordinate system, so they land aligned — and assign a filament to each. They
+cannot be one file: STL carries no notion of parts or colour, so anything
+merged would print in a single colour.
 
 ### Webhook
 

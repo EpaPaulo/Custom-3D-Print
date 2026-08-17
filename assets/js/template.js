@@ -1,16 +1,13 @@
-// Template cover: stamping onto a fixed, supplied STL.
+// Template cover: two-colour design on a fixed, supplied STL.
+//
+// The cover prints black and the design prints white, flush with the surface —
+// there is no relief. So the design is not a stamp standing proud of the face;
+// it is an *inlay* occupying the first few layers of the cover, emitted as its
+// own closed solid in the same coordinate space. The slicer loads the two as
+// parts of one object and assigns a filament to each.
 //
 // The template's dimensions are the whole point of it, so its triangles are
-// never touched. The stamp is emitted as a *separate closed solid* that
-// overlaps the cover slightly; the slicer unions the two on import. That keeps
-// the base mesh byte-identical to the file that was measured against the
-// machine, and it sidesteps CSG entirely.
-
-// How far the un-inked parts of the slab sit inside the face. Buried either
-// way, so the printed result is unaffected, but it needs to be comfortably
-// more than the depth buffer can resolve or the preview z-fights.
-const EPS = 0.15;
-const EMBED = 0.6;  // how deep the slab is buried, to guarantee a clean union
+// never touched, and the inlay never crosses the face plane outward.
 
 // ---------------------------------------------------------------------------
 // Binary STL
@@ -106,7 +103,7 @@ export function analyseFace(positions) {
 }
 
 // ---------------------------------------------------------------------------
-// Stamp slab
+// Design inlay
 // ---------------------------------------------------------------------------
 
 function sampleBox(sat, w, h, cx, cy, half) {
@@ -125,110 +122,162 @@ function sampleBox(sat, w, h, cx, cy, half) {
 }
 
 /**
- * Build the raised design as one closed solid sitting on the template's face.
+ * Build the design as a closed solid inlaid into the cover's outward face.
  *
- * Layer coordinates are the face as the user sees it (looking at the outward
- * side, +x right, +y up). The face normal points along -Z, so a viewer looking
- * at it sees world +X reversed — hence the mirror when mapping to world space.
+ * The surface of the inlay sits exactly on the face plane and the body extends
+ * inward, so the printed part has no relief: the colour change happens in the
+ * first few layers and the two filaments meet flush.
  *
- * face   result of analyseFace
- * mask   { sat, w, h, pxPerMm } over the full safe area, or null
- * height how far the design stands proud of the face, in mm
- * cell   grid pitch in mm
+ * Geometry comes from marching *triangles* rather than marching squares. The
+ * square case has an ambiguous saddle whose two readings differ, and the wrong
+ * reading joins letterforms that should stay apart; splitting each cell into
+ * two triangles removes the ambiguity entirely, and every region it produces is
+ * convex, so a fan triangulation of it is always valid.
+ *
+ * surface   { z, cx, cy, dir, mirror } — the face plane, the centre of the
+ *           design area in world XY, +1/-1 for which way the face points, and
+ *           whether layer +x maps to world -x.
+ * mask      { sat, w, h, pxPerMm, faceW, faceH } over the usable area, or null
+ * thickness how deep the colour runs into the cover, in mm
+ * cell      grid pitch in mm
  */
-export function buildStampSolid(face, mask, height, cell) {
-  if (!mask || height <= 0) return new Float32Array(0);
+export function buildInlaySolid(surface, mask, thickness, cell) {
+  if (!mask || thickness <= 0) return new Float32Array(0);
 
-  // Only tessellate where the design actually is.
   const box = maskExtent(mask);
   if (!box) return new Float32Array(0);
 
-  const pad = 1.5;
-  const lx0 = Math.max(-face.safeWidth / 2, box.x0 - pad);
-  const lx1 = Math.min(face.safeWidth / 2, box.x1 + pad);
-  const ly0 = Math.max(-face.safeHeight / 2, box.y0 - pad);
-  const ly1 = Math.min(face.safeHeight / 2, box.y1 + pad);
-  if (lx1 - lx0 < 0.5 || ly1 - ly0 < 0.5) return new Float32Array(0);
+  // Two cells of margin so the field reaches zero before the grid ends, which
+  // is what closes the contour.
+  const pad = cell * 2;
+  const lx0 = box.x0 - pad, lx1 = box.x1 + pad;
+  const ly0 = box.y0 - pad, ly1 = box.y1 + pad;
 
-  const nu = Math.max(4, Math.round((lx1 - lx0) / cell));
-  const nv = Math.max(4, Math.round((ly1 - ly0) / cell));
+  const nu = Math.max(2, Math.ceil((lx1 - lx0) / cell));
+  const nv = Math.max(2, Math.ceil((ly1 - ly0) / cell));
   const W = nu + 1;
-
   const LX = (i) => lx0 + ((lx1 - lx0) * i) / nu;
   const LY = (j) => ly0 + ((ly1 - ly0) * j) / nv;
 
-  const outerZ = new Float64Array((nu + 1) * (nv + 1));
+  // Sample the mask onto the grid. Anything beyond the usable area is forced
+  // to zero: sampleBox clamps to the bitmap, which would otherwise smear the
+  // edge value outward and leave the contour open.
+  const field = new Float32Array((nu + 1) * (nv + 1));
   const halfPx = (cell * mask.pxPerMm) / 2;
+  const hw = mask.faceW / 2;
+  const hh = mask.faceH / 2;
 
   for (let j = 0; j <= nv; j++) {
+    const ly = LY(j);
     for (let i = 0; i <= nu; i++) {
-      const px = (LX(i) + face.safeWidth / 2) * mask.pxPerMm;
-      const py = (face.safeHeight / 2 - LY(j)) * mask.pxPerMm;
-      const a = sampleBox(mask.sat, mask.w, mask.h, px, py, halfPx);
-      // a = 0 -> just inside the face; a = 1 -> standing proud by `height`
-      outerZ[j * W + i] = face.z + EPS - (height + EPS) * a;
+      const lx = LX(i);
+      if (lx <= -hw || lx >= hw || ly <= -hh || ly >= hh) continue;
+      field[j * W + i] = sampleBox(
+        mask.sat, mask.w, mask.h,
+        (lx + hw) * mask.pxPerMm, (hh - ly) * mask.pxPerMm, halfPx,
+      );
     }
   }
 
-  const innerZ = face.z + EMBED;
-  const N = 2 * nu + 2 * nv;
-  const pos = new Float32Array((nu * nv * 4 + N * 2) * 9);
+  const ISO = 0.5;
+  const zSurface = surface.z;
+  const zInner = surface.z - surface.dir * thickness;
+  const zHi = Math.max(zSurface, zInner);
+  const zLo = Math.min(zSurface, zInner);
+
+  let capacity = 8192;
+  let pos = new Float32Array(capacity * 9);
   let n = 0;
 
-  // Triangles are reasoned about in layer space (x right, y up, z as in world).
-  // Mapping to world mirrors X, and a reflection reverses winding, so each
-  // triangle is written with its last two vertices swapped — that keeps a
-  // layer-space outward face outward once mirrored.
-  const emit = (a, b, c) => {
-    const o = n * 9;
-    const w = (p, k) => {
-      pos[o + k] = face.cx - p[0];
-      pos[o + k + 1] = face.cy + p[1];
-      pos[o + k + 2] = p[2];
-    };
-    w(a, 0); w(c, 3); w(b, 6);
-    n++;
+  const put = (p, o, k) => {
+    pos[o + k] = surface.mirror ? surface.cx - p[0] : surface.cx + p[0];
+    pos[o + k + 1] = surface.cy + p[1];
+    pos[o + k + 2] = p[2];
   };
+
+  // Triangles are reasoned about in layer space, where +x is right and +y is
+  // up as the design is seen. Mirroring reverses winding, so the last two
+  // vertices swap on the way out.
+  function emit(a, b, c) {
+    // Where a sample lands exactly on the threshold, a crossing point can
+    // coincide with the corner it came from, collapsing a wall to nothing.
+    // Such a face has no surface but its edges are real, and they duplicate a
+    // neighbour's — which is what makes a shape like a checkerboard, whose
+    // squares touch at a point, come out non-manifold. Dropping them here
+    // costs nothing: a zero-area face encloses no volume.
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    if (nx * nx + ny * ny + nz * nz < 1e-14) return;
+
+    if (n >= capacity) {
+      capacity *= 2;
+      const bigger = new Float32Array(capacity * 9);
+      bigger.set(pos);
+      pos = bigger;
+    }
+    const o = n * 9;
+    put(a, o, 0);
+    if (surface.mirror) { put(c, o, 3); put(b, o, 6); } else { put(b, o, 3); put(c, o, 6); }
+    n++;
+  }
+
+  // The part of one triangle where the field is at or above the threshold.
+  // Points landing on an edge crossing are flagged, because only a run between
+  // two crossings is real contour — the rest lies on a shared cell edge and is
+  // covered by the neighbouring cell.
+  const region = [];
+  function regionOf(t) {
+    region.length = 0;
+    for (let k = 0; k < 3; k++) {
+      const a = t[k];
+      const b = t[(k + 1) % 3];
+      const ain = a[2] >= ISO;
+      const bin = b[2] >= ISO;
+      if (ain) region.push(a[0], a[1], 0);
+      if (ain !== bin) {
+        const f = (ISO - a[2]) / (b[2] - a[2]);
+        region.push(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 1);
+      }
+    }
+    return region.length / 3;
+  }
+
+  const corner = (i, j) => [LX(i), LY(j), field[j * W + i]];
+  const px = (k) => region[k * 3];
+  const py = (k) => region[k * 3 + 1];
+  const isCross = (k) => region[k * 3 + 2] === 1;
 
   for (let j = 0; j < nv; j++) {
     for (let i = 0; i < nu; i++) {
-      const xa = LX(i), xb = LX(i + 1);
-      const ya = LY(j), yb = LY(j + 1);
+      const c00 = corner(i, j);
+      const c10 = corner(i + 1, j);
+      const c11 = corner(i + 1, j + 1);
+      const c01 = corner(i, j + 1);
 
-      // Outward surface of the stamp: faces -Z, so clockwise in layer space.
-      const A = [xa, ya, outerZ[j * W + i]];
-      const B = [xb, ya, outerZ[j * W + i + 1]];
-      const C = [xb, yb, outerZ[(j + 1) * W + i + 1]];
-      const D = [xa, yb, outerZ[(j + 1) * W + i]];
-      emit(A, C, B);
-      emit(A, D, C);
+      for (const t of [[c00, c10, c11], [c00, c11, c01]]) {
+        const count = regionOf(t);
+        if (count < 3) continue;
 
-      // Buried surface: faces +Z, so counter-clockwise.
-      const a2 = [xa, ya, innerZ];
-      const b2 = [xb, ya, innerZ];
-      const c2 = [xb, yb, innerZ];
-      const d2 = [xa, yb, innerZ];
-      emit(a2, b2, c2);
-      emit(a2, c2, d2);
+        // Caps. The region is convex and wound counter-clockwise, so a fan
+        // from its first vertex covers it exactly.
+        for (let k = 1; k + 1 < count; k++) {
+          emit([px(0), py(0), zHi], [px(k), py(k), zHi], [px(k + 1), py(k + 1), zHi]);
+          emit([px(0), py(0), zLo], [px(k + 1), py(k + 1), zLo], [px(k), py(k), zLo]);
+        }
+
+        // Walls, only along the contour itself.
+        for (let k = 0; k < count; k++) {
+          const m = (k + 1) % count;
+          if (!isCross(k) || !isCross(m)) continue;
+          const ax = px(k), ay = py(k), bx = px(m), by = py(m);
+          emit([ax, ay, zHi], [ax, ay, zLo], [bx, by, zLo]);
+          emit([ax, ay, zHi], [bx, by, zLo], [bx, by, zHi]);
+        }
+      }
     }
-  }
-
-  // Side walls, joining the buried surface down to the outward one.
-  const ring = [];
-  for (let i = 0; i <= nu; i++) ring.push([i, 0]);
-  for (let j = 1; j <= nv; j++) ring.push([nu, j]);
-  for (let i = nu - 1; i >= 0; i--) ring.push([i, nv]);
-  for (let j = nv - 1; j >= 1; j--) ring.push([0, j]);
-
-  for (let k = 0; k < ring.length; k++) {
-    const [i1, j1] = ring[k];
-    const [i2, j2] = ring[(k + 1) % ring.length];
-    const T1 = [LX(i1), LY(j1), innerZ];
-    const T2 = [LX(i2), LY(j2), innerZ];
-    const B1 = [LX(i1), LY(j1), outerZ[j1 * W + i1]];
-    const B2 = [LX(i2), LY(j2), outerZ[j2 * W + i2]];
-    emit(T1, B1, B2);
-    emit(T1, B2, T2);
   }
 
   return pos.subarray(0, n * 9);

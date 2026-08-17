@@ -29,8 +29,9 @@ export const config = {
   maxMaskPixels: 4_000_000,
   maxPreviewBytes: 2 * 1024 * 1024,
 
-  reliefMin: 0.2,
-  reliefMax: 4,
+  // How deep the second filament runs into the cover.
+  colourMin: 0.2,
+  colourMax: 4,
   cellMin: 0.35,
   cellMax: 1.5,
 };

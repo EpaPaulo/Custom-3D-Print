@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildCover } from './geom.js';
 import { renderMask, makeTextLayer, makeImageLayer, FONTS } from './stamp.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
-import { parseSTL, analyseFace, buildStampSolid, buildExportSTL } from './template.js';
+import { parseSTL, analyseFace, buildInlaySolid, buildExportSTL } from './template.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'bimby-cover-v1';
@@ -30,9 +30,8 @@ const DEFAULTS = {
   radius: 10,
   wall: 2,
   depth: 12,
-  stampMode: 'raised',
-  stampDepth: 1,
-  cell: 0.7,
+  colourDepth: 0.6,
+  cell: 0.5,
 };
 
 let state = { ...DEFAULTS };
@@ -52,13 +51,19 @@ function designArea() {
     : { w: state.width, h: state.height };
 }
 
-// Minimum material left under an engraved stamp.
-const MIN_FLOOR = 0.4;
+// The design is a second filament occupying the first few layers of the cover,
+// so it can never be thicker than the cover itself.
+function maxColourDepth() {
+  return isTemplate() ? 4 : Math.max(0.2, state.wall - 0.4);
+}
 
-function maxStampDepth() {
-  // Template mode only adds material, so there is no floor to protect.
-  if (isTemplate() || state.stampMode !== 'engraved') return 4;
-  return Math.max(0.2, state.wall - MIN_FLOOR);
+// Where the design sits, in the frame the user sees it in. The template's face
+// looks along -Z, so its layer +x maps to world -x; the parametric cover's
+// face looks along +Z and needs no mirror.
+function surfaceOf(topZ) {
+  return isTemplate()
+    ? { z: face.z, cx: face.cx, cy: face.cy, dir: -1, mirror: true }
+    : { z: topZ, cx: 0, cy: 0, dir: 1, mirror: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +77,9 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDraw
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x11151b);
+// The part is black now, so the stage has to be lighter than it or the cover
+// loses its silhouette entirely against the background.
+scene.background = new THREE.Color(0x474d57);
 
 // A tight near plane relative to far costs depth precision, which shows up as
 // z-fighting where the design meets the cover face. The part is ~250 mm and is
@@ -86,7 +93,7 @@ controls.dampingFactor = 0.08;
 controls.minDistance = 60;
 controls.maxDistance = 1500;
 
-scene.add(new THREE.HemisphereLight(0xdfe9f5, 0x1a1f26, 1.15));
+scene.add(new THREE.HemisphereLight(0xeef3fa, 0x39404a, 1.25));
 
 const key = new THREE.DirectionalLight(0xffffff, 1.5);
 key.position.set(0.4, 0.8, 1);
@@ -96,22 +103,23 @@ const fill = new THREE.DirectionalLight(0x9fc4ff, 0.5);
 fill.position.set(-0.8, -0.3, 0.6);
 scene.add(fill);
 
-const rim = new THREE.DirectionalLight(0xffffff, 0.7);
-rim.position.set(0, 0.2, -1);
+// Grazing light along the edges, which is what separates a black part from a
+// grey ground.
+const rim = new THREE.DirectionalLight(0xffffff, 1.1);
+rim.position.set(-0.3, 0.5, -1);
 scene.add(rim);
 
 const material = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.58,
-  metalness: 0.04,
+  color: 0x24262a, roughness: 0.72, metalness: 0.02,
 });
 
+// The print is two filaments: a black cover and a white design.
 const baseMaterial = new THREE.MeshStandardMaterial({
-  color: 0x9fb0c4, roughness: 0.6, metalness: 0.04,
+  color: 0x24262a, roughness: 0.72, metalness: 0.02,
 });
 
-const stampMaterial = new THREE.MeshStandardMaterial({
-  color: 0x4da3ff, roughness: 0.45, metalness: 0.05,
+const inlayMaterial = new THREE.MeshStandardMaterial({
+  color: 0xf3f3ef, roughness: 0.62, metalness: 0.02,
 });
 
 // modelRoot orients the whole cover; holder recentres it so orbiting spins
@@ -121,9 +129,10 @@ scene.add(modelRoot);
 const holder = new THREE.Group();
 modelRoot.add(holder);
 
-let mesh = null;        // parametric cover, or the stamp slab in template mode
+let mesh = null;        // the cover body (parametric only; template uses baseMesh)
 let baseMesh = null;    // the untouched template body
-let lastBuild = null;
+let inlayMesh = null;   // the white design body
+let lastBuild = null;   // { cover, inlay } triangle arrays for export
 
 function resize() {
   const w = viewport.clientWidth;
@@ -145,9 +154,6 @@ function animate() {
 // ---------------------------------------------------------------------------
 // Geometry rebuild
 // ---------------------------------------------------------------------------
-
-const BASE = new THREE.Color(0x9fb0c4);
-const ACCENT = new THREE.Color(0x4da3ff);
 
 let maskCache = { key: null, mask: null };
 
@@ -172,43 +178,54 @@ function setStat(id, text) {
 }
 
 function clearMesh() {
-  if (mesh) {
-    mesh.geometry.dispose();
-    holder.remove(mesh);
-    mesh = null;
+  for (const m of [mesh, inlayMesh]) {
+    if (!m) continue;
+    m.geometry.dispose();
+    holder.remove(m);
   }
+  mesh = null;
+  inlayMesh = null;
+}
+
+// The inlay's surface is exactly coplanar with the cover's face, which is
+// correct for printing and unresolvable for a depth buffer. Nudging the
+// preview mesh a hair outward keeps the two apart on screen without touching
+// the geometry that gets exported.
+function showInlay(positions, dir) {
+  if (!positions.length) return;
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.computeVertexNormals();
+  inlayMesh = new THREE.Mesh(geom, inlayMaterial);
+  inlayMesh.position.z = dir * 0.05;
+  holder.add(inlayMesh);
 }
 
 // Template mode: the STL body is shown as-is and the design is a separate
 // solid laid on its outward face. Nothing about the template is recomputed.
 function rebuildTemplate() {
-  const height = Math.min(state.stampDepth, 4);
-  const slab = buildStampSolid(face, maskFor(), height, state.cell);
+  const depth = Math.min(state.colourDepth, maxColourDepth());
+  const inlay = buildInlaySolid(surfaceOf(), maskFor(), depth, state.cell);
 
-  lastBuild = { positions: slab, triangles: slab.length / 9 };
+  lastBuild = { cover: template.positions, inlay };
 
   clearMesh();
-  if (slab.length) {
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.BufferAttribute(slab, 3));
-    geom.computeVertexNormals();
-    mesh = new THREE.Mesh(geom, stampMaterial);
-    holder.add(mesh);
-  }
+  showInlay(inlay, -1);
 
-  const total = template.triangles + slab.length / 9;
   setStat('s-dims', `${face.width.toFixed(1)} × ${face.height.toFixed(1)} mm (fixo)`);
-  setStat('s-tris', total.toLocaleString('pt-PT'));
-  setStat('s-size', `~${((84 + total * 50) / 1048576).toFixed(1)} MB`);
-  $('stamp-warn').hidden = true;
+  setStat('s-tris', `${template.triangles.toLocaleString('pt-PT')} + ${(inlay.length / 9).toLocaleString('pt-PT')}`);
+  setStat('s-size', `${((84 + template.triangles * 50) / 1048576).toFixed(1)} + ${((84 + (inlay.length / 9) * 50) / 1048576).toFixed(1)} MB`);
 }
 
 function rebuild() {
   if (isTemplate()) return rebuildTemplate();
 
   const depth = Math.max(state.wall + 0.6, state.depth);
-  const stampDepth = Math.min(state.stampDepth, maxStampDepth());
+  const totalDepth = state.style === 'shell' ? depth : state.wall;
+  const topZ = state.style === 'shell' ? depth : state.wall;
 
+  // The cover's face is flat: the design is a second body, not a displacement,
+  // so the grid only has to describe the shape and can stay coarse.
   const built = buildCover({
     width: state.width,
     height: state.height,
@@ -216,48 +233,40 @@ function rebuild() {
     wall: state.wall,
     depth,
     style: state.style,
-    stampDepth,
-    stampMode: state.stampMode,
-    cell: state.cell,
-    mask: maskFor(),
+    stampDepth: 0,
+    stampMode: 'raised',
+    cell: 2,
+    mask: null,
   });
 
-  lastBuild = built;
+  const colourDepth = Math.min(state.colourDepth, maxColourDepth());
+  const inlay = buildInlaySolid(surfaceOf(topZ), maskFor(), colourDepth, state.cell);
+
+  lastBuild = { cover: built.positions, inlay };
 
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(built.positions, 3));
-
-  // Tint the stamped areas so the design reads clearly in the preview.
-  const colors = new Float32Array(built.amounts.length * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < built.amounts.length; i++) {
-    const a = built.amounts[i];
-    const t = a <= 0.35 ? 0 : a >= 0.65 ? 1 : (a - 0.35) / 0.3;
-    c.copy(BASE).lerp(ACCENT, t);
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geom.computeVertexNormals();
 
   clearMesh();
   mesh = new THREE.Mesh(geom, material);
   holder.add(mesh);
+  showInlay(inlay, 1);
+
   // Geometry runs z = 0 .. topZ; centre it so orbiting feels natural.
-  const totalDepth = state.style === 'shell' ? depth : state.wall;
   holder.position.set(0, 0, -totalDepth / 2);
   modelRoot.rotation.y = 0;
 
+  const inlayTris = inlay.length / 9;
   setStat('s-dims', `${state.width} × ${state.height} × ${totalDepth.toFixed(1)} mm`);
-  setStat('s-tris', built.triangles.toLocaleString('pt-PT'));
-  setStat('s-size', `~${((84 + built.triangles * 50) / 1048576).toFixed(1)} MB`);
+  setStat('s-tris', `${built.triangles.toLocaleString('pt-PT')} + ${inlayTris.toLocaleString('pt-PT')}`);
+  setStat('s-size', `${((84 + built.triangles * 50) / 1048576).toFixed(1)} + ${((84 + inlayTris * 50) / 1048576).toFixed(1)} MB`);
 
   const warn = $('stamp-warn');
-  if (state.stampMode === 'engraved' && state.stampDepth > maxStampDepth() + 1e-6) {
+  if (state.colourDepth > maxColourDepth() + 1e-6) {
     warn.hidden = false;
     warn.textContent =
-      `Limitado a ${maxStampDepth().toFixed(1)} mm para deixar ${MIN_FLOOR} mm de material sob o gravado.`;
+      `Limitada a ${maxColourDepth().toFixed(1)} mm — a cor não pode atravessar a espessura da capa.`;
   } else {
     warn.hidden = true;
   }
@@ -325,7 +334,7 @@ const SLIDERS = [
   ['f-radius', 'o-radius', 'radius', (v) => `${v} mm`],
   ['f-wall', 'o-wall', 'wall', (v) => `${v} mm`],
   ['f-depth', 'o-depth', 'depth', (v) => `${v} mm`],
-  ['f-stamp', 'o-stamp', 'stampDepth', (v) => `${v} mm`],
+  ['f-colour', 'o-colour', 'colourDepth', (v) => `${v} mm`],
 ];
 
 function syncControls() {
@@ -335,7 +344,6 @@ function syncControls() {
   }
   $('f-quality').value = String(state.cell);
   for (const b of $('style-seg').children) b.classList.toggle('on', b.dataset.val === state.style);
-  for (const b of $('mode-seg').children) b.classList.toggle('on', b.dataset.val === state.stampMode);
   const baseSeg = $('base-seg');
   if (baseSeg) {
     for (const b of baseSeg.children) b.classList.toggle('on', b.dataset.val === state.mode);
@@ -346,9 +354,7 @@ function syncControls() {
   // change them is offered while it is selected.
   $('custom-dims').hidden = tpl;
   $('template-info').hidden = !tpl;
-  $('mode-field').hidden = tpl;
   $('depth-field').hidden = tpl || state.style !== 'shell';
-  $('stamp-label').textContent = tpl ? 'Altura do relevo' : 'Altura do relevo';
 
   if (tpl && face) {
     $('t-size').textContent = `${face.width.toFixed(1)} × ${face.height.toFixed(1)} × 10,0 mm`;
@@ -386,14 +392,6 @@ $('style-seg').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   state.style = b.dataset.val;
-  syncControls();
-  scheduleRebuild();
-});
-
-$('mode-seg').addEventListener('click', (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  state.stampMode = b.dataset.val;
   syncControls();
   scheduleRebuild();
 });
@@ -715,24 +713,31 @@ $('btn-wire').addEventListener('click', (e) => {
   e.currentTarget.classList.toggle('on', material.wireframe);
 });
 
-function exportSTL() {
-  // Belt and braces: the buttons are gone in shop mode, but the function is
-  // reachable from the console, and the model is the thing being sold.
+// Two filaments means two bodies, and they have to stay separate files: STL
+// carries no notion of parts or colour, so anything merged into one file would
+// print in a single colour. Load both into the slicer as one object with two
+// parts — they share a coordinate system, so they land aligned — then assign a
+// filament to each.
+function exportCover() {
   if (SHOP || !lastBuild) return;
-
-  // In template mode the supplied records are copied through byte for byte and
-  // the design is appended as a second body for the slicer to union.
-  const { buffer, triangles } = isTemplate()
-    ? buildExportSTL(template.source, template.triangles, lastBuild.positions, 'bimby tm7 cover')
-    : trianglesToSTL(lastBuild.positions, 'bimby tm7 cover');
-
-  $('s-tris').textContent = triangles.toLocaleString('pt-PT');
-  $('s-size').textContent = `${(buffer.byteLength / 1048576).toFixed(1)} MB`;
-  downloadBlob(new Blob([buffer], { type: 'model/stl' }), 'capa-bimby-tm7.stl');
+  // The template's own records are copied through byte for byte rather than
+  // re-encoded, so the measured mesh survives exactly.
+  const { buffer } = isTemplate()
+    ? buildExportSTL(template.source, template.triangles, null, 'capa tm7')
+    : trianglesToSTL(lastBuild.cover, 'capa tm7');
+  downloadBlob(new Blob([buffer], { type: 'model/stl' }), 'capa-tm7-preto.stl');
 }
 
-$('btn-stl')?.addEventListener('click', exportSTL);
-$('btn-stl-2')?.addEventListener('click', exportSTL);
+function exportInlay() {
+  if (SHOP || !lastBuild || !lastBuild.inlay.length) return;
+  const { buffer } = trianglesToSTL(lastBuild.inlay, 'desenho tm7');
+  downloadBlob(new Blob([buffer], { type: 'model/stl' }), 'desenho-tm7-branco.stl');
+}
+
+$('btn-cover')?.addEventListener('click', exportCover);
+$('btn-cover-2')?.addEventListener('click', exportCover);
+$('btn-design')?.addEventListener('click', exportInlay);
+$('btn-design-2')?.addEventListener('click', exportInlay);
 
 $('btn-snapshot').addEventListener('click', () => {
   renderer.render(scene, camera);
@@ -816,7 +821,7 @@ window.BimbyCover = {
     return {
       config: {
         mode: state.mode,
-        relief: state.stampDepth,
+        colourDepth: state.colourDepth,
         cell: state.cell,
         layers: layers.map(serializeLayer),
       },
@@ -864,7 +869,7 @@ function applyEmbedMode() {
   // Only the template is a product, so the base switch has nothing to offer,
   // and triangle counts are not something a shopper needs.
   state.mode = 'template';
-  for (const el of [$('btn-stl'), $('base-field'), $('result-group')]) {
+  for (const el of [$('btn-cover'), $('btn-design'), $('base-field'), $('result-group')]) {
     if (el) el.remove();
   }
 }

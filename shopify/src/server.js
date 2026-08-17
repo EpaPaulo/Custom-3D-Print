@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import express from 'express';
 import { config, assertRuntimeConfig } from './config.js';
 import * as store from './store.js';
-import { renderDesignSTL, templateInfo, decodeMask, RenderError } from './render.js';
+import {
+  renderDesignSTL, renderCoverSTL, templateInfo, decodeMask, RenderError,
+} from './render.js';
 
 // Read once: it is a fixed asset, and a failure to find it should stop the
 // process at startup rather than 500 on the first person trying to log in.
@@ -74,7 +76,7 @@ export function createApp() {
       const preview = decodeBase64Png(previewPng, config.maxPreviewBytes);
 
       const record = await store.putDesign({
-        relief: design.relief,
+        colourDepth: design.colourDepth,
         cell: design.cell,
         // Kept for support and re-editing. Never used to build geometry.
         layers: Array.isArray(design.layers) ? design.layers.slice(0, 40) : [],
@@ -97,7 +99,7 @@ export function createApp() {
     try {
       const d = await store.getDesign(req.params.id);
       if (!d) return res.status(404).json({ error: 'not found' });
-      res.json({ id: d.id, createdAt: d.createdAt, relief: d.relief, layers: d.layers });
+      res.json({ id: d.id, createdAt: d.createdAt, colourDepth: d.colourDepth, layers: d.layers });
     } catch (err) { next(err); }
   });
 
@@ -144,8 +146,21 @@ export function createApp() {
     } catch (err) { next(err); }
   });
 
-  // The print file. Gated behind the admin token, and behind approval: an
-  // unreviewed design must not reach a printer.
+  // The black cover. Identical for every order, so it is fetched once and kept
+  // rather than reissued per design.
+  admin.get('/cover.stl', async (_req, res, next) => {
+    try {
+      const { buffer, triangles } = await renderCoverSTL();
+      res
+        .type('model/stl')
+        .set('X-Triangle-Count', String(triangles))
+        .set('Content-Disposition', 'attachment; filename="capa-tm7-preto.stl"')
+        .send(Buffer.from(buffer));
+    } catch (err) { next(err); }
+  });
+
+  // The per-order print file: the white design body. Gated behind the admin
+  // token, and behind approval — an unreviewed design must not reach a printer.
   admin.get('/designs/:id/model.stl', async (req, res, next) => {
     try {
       const design = await store.getDesign(req.params.id);
@@ -168,7 +183,7 @@ export function createApp() {
       res
         .type('model/stl')
         .set('X-Triangle-Count', String(triangles))
-        .set('Content-Disposition', `attachment; filename="capa-${design.id}.stl"`)
+        .set('Content-Disposition', `attachment; filename="desenho-${design.id}-branco.stl"`)
         .send(Buffer.from(buffer));
     } catch (err) {
       if (err instanceof RenderError) return res.status(422).json({ error: err.message });

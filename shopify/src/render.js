@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
 import { config } from './config.js';
 import {
-  parseSTL, analyseFace, buildStampSolid, buildExportSTL,
+  parseSTL, analyseFace, buildInlaySolid, buildExportSTL,
 } from '../../assets/js/template.js';
 import { buildSAT } from '../../assets/js/geom.js';
 
@@ -50,8 +50,12 @@ export function decodeMask(pngBuffer) {
 }
 
 /**
- * Build the print file for a stored design.
- * Returns { buffer, triangles } — the template verbatim plus the design body.
+ * Build the per-order print file: the white design body alone.
+ *
+ * The cover is identical for every order, so it is not reissued each time —
+ * fetch it once from renderCoverSTL(). Load the two into the slicer as one
+ * object with two parts and assign a filament to each; they share a coordinate
+ * system, so they land aligned.
  */
 export async function renderDesignSTL(design, maskPng) {
   const { template, face } = await loadTemplate();
@@ -68,7 +72,9 @@ export async function renderDesignSTL(design, maskPng) {
     );
   }
 
-  const relief = clamp(design.relief, config.reliefMin, config.reliefMax);
+  const colourDepth = clamp(
+    design.colourDepth ?? design.relief, config.colourMin, config.colourMax,
+  );
   const cell = clamp(design.cell ?? 0.5, config.cellMin, config.cellMax);
 
   const mask = {
@@ -79,10 +85,48 @@ export async function renderDesignSTL(design, maskPng) {
     sat: buildSAT(data, w, h),
   };
 
-  const slab = buildStampSolid(face, mask, relief, cell);
-  if (!slab.length) throw new RenderError('Design is empty — nothing to print.');
+  const surface = { z: face.z, cx: face.cx, cy: face.cy, dir: -1, mirror: true };
+  const inlay = buildInlaySolid(surface, mask, colourDepth, cell);
+  if (!inlay.length) throw new RenderError('Design is empty — nothing to print.');
 
-  return buildExportSTL(template.source, template.triangles, slab, 'bimby tm7 cover');
+  return writeSTL(inlay, 'desenho tm7');
+}
+
+/** The black cover: the supplied template, copied through byte for byte. */
+export async function renderCoverSTL() {
+  const { template } = await loadTemplate();
+  return buildExportSTL(template.source, template.triangles, null, 'capa tm7');
+}
+
+// A plain binary STL for geometry we generated ourselves.
+function writeSTL(positions, header) {
+  const tri = positions.length / 9;
+  const out = new ArrayBuffer(84 + tri * 50);
+  const view = new DataView(out);
+  const bytes = new Uint8Array(out);
+  for (let i = 0; i < header.length && i < 79; i++) bytes[i] = header.charCodeAt(i) & 0x7f;
+  view.setUint32(80, tri, true);
+
+  let off = 84;
+  for (let t = 0; t < tri; t++) {
+    const o = t * 9;
+    const ux = positions[o + 3] - positions[o];
+    const uy = positions[o + 4] - positions[o + 1];
+    const uz = positions[o + 5] - positions[o + 2];
+    const vx = positions[o + 6] - positions[o];
+    const vy = positions[o + 7] - positions[o + 1];
+    const vz = positions[o + 8] - positions[o + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len > 0) { nx /= len; ny /= len; nz /= len; }
+    view.setFloat32(off, nx, true);
+    view.setFloat32(off + 4, ny, true);
+    view.setFloat32(off + 8, nz, true);
+    for (let i = 0; i < 9; i++) view.setFloat32(off + 12 + i * 4, positions[o + i], true);
+    view.setUint16(off + 48, 0, true);
+    off += 50;
+  }
+  return { buffer: out, triangles: tri };
 }
 
 function clamp(v, lo, hi) {

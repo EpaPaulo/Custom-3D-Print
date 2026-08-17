@@ -78,7 +78,7 @@ await check('POST /api/designs stores a design', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      config: { relief: 1.2, cell: 0.6, layers: [{ kind: 'text', text: 'BIMBY' }] },
+      config: { colourDepth: 1.2, cell: 0.6, layers: [{ kind: 'text', text: 'BIMBY' }] },
       maskPng: maskB64,
       previewPng: previewB64,
     }),
@@ -93,7 +93,7 @@ await check('a mask with the wrong aspect ratio is refused at fulfilment', async
   const created = await json('/api/designs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config: { relief: 1 }, maskPng: bad }),
+    body: JSON.stringify({ config: { colourDepth: 1 }, maskPng: bad }),
   });
   assert.equal(created.status, 201);
   const stl = await json(`/admin/designs/${created.body.id}/model.stl?force=1`, {
@@ -186,7 +186,7 @@ await check('an unapproved order will not release a print file', async () => {
   assert.equal(r.status, 409);
 });
 
-await check('approving the order releases a valid STL', async () => {
+await check('approving the order releases a valid design body', async () => {
   const upd = await json('/admin/orders/5001/status', {
     method: 'POST',
     headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
@@ -203,28 +203,51 @@ await check('approving the order releases a valid STL', async () => {
   // Parse it back rather than trusting the byte count.
   const count = buf.readUInt32LE(80);
   assert.equal(buf.length, 84 + count * 50, 'STL length must match its triangle count');
-  assert.ok(count > info.triangles, 'the design must add triangles to the template');
+  assert.ok(count > 0, 'the design must produce geometry');
 
-  // The template's own records must survive byte for byte.
-  const source = await fs.readFile(new URL('../../assets/model/tm7-cover.stl', import.meta.url));
-  const n = source.readUInt32LE(80);
-  assert.equal(
-    Buffer.compare(source.subarray(84, 84 + n * 50), buf.subarray(84, 84 + n * 50)), 0,
-    'template triangles must be unchanged',
-  );
-
-  // Footprint must be untouched; only Z grows, by the relief height.
-  let minZ = Infinity, minX = Infinity, maxX = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (let t = 0; t < count; t++) {
     const o = 84 + t * 50;
     for (let i = 0; i < 3; i++) {
       minX = Math.min(minX, buf.readFloatLE(o + 12 + i * 12));
       maxX = Math.max(maxX, buf.readFloatLE(o + 12 + i * 12));
-      minZ = Math.min(minZ, buf.readFloatLE(o + 20 + i * 12));
+      minY = Math.min(minY, buf.readFloatLE(o + 16 + i * 12));
+      maxY = Math.max(maxY, buf.readFloatLE(o + 16 + i * 12));
+      const z = buf.readFloatLE(o + 20 + i * 12);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z);
     }
   }
-  assert.ok(Math.abs((maxX - minX) - info.width) < 0.01, 'width must be unchanged');
-  assert.ok(Math.abs(minZ + 1.2) < 0.05, `relief should reach -1.2, got ${minZ.toFixed(3)}`);
+
+  // There is no relief: the design's surface sits on the face plane and the
+  // body runs inward, so nothing may sit proud of it.
+  assert.ok(Math.abs(minZ) < 0.01, `design must start at the face, got ${minZ.toFixed(3)}`);
+  assert.ok(Math.abs(maxZ - 1.2) < 0.01, `design must run 1.2 mm inward, got ${maxZ.toFixed(3)}`);
+
+  // And it must stay inside the usable area of the cover.
+  assert.ok(maxX - minX <= info.usableWidth + 0.01, 'design wider than the usable area');
+  assert.ok(maxY - minY <= info.usableHeight + 0.01, 'design taller than the usable area');
+});
+
+await check('the cover is served separately and byte-for-byte', async () => {
+  const res = await fetch(`${base}/admin/cover.stl`, {
+    headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+  });
+  assert.equal(res.status, 200);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const source = await fs.readFile(new URL('../../assets/model/tm7-cover.stl', import.meta.url));
+  const n = source.readUInt32LE(80);
+  assert.equal(buf.readUInt32LE(80), n, 'cover must carry exactly the template triangles');
+  assert.equal(
+    Buffer.compare(source.subarray(84, 84 + n * 50), buf.subarray(84, 84 + n * 50)), 0,
+    'template triangles must be unchanged',
+  );
+});
+
+await check('the cover needs a token too', async () => {
+  const r = await fetch(`${base}/admin/cover.stl`);
+  assert.equal(r.status, 401);
 });
 
 await check('rejecting an order locks the print file again', async () => {

@@ -405,6 +405,7 @@ body {
     <h1>Encomendas<span>Capas TM7 · produção</span></h1>
     <div class="bar-right">
       <span class="conn" id="conn"><i></i><span id="conn-text">—</span></span>
+      <button class="btn" id="cover" type="button">STL da capa</button>
       <button class="btn" id="refresh" type="button">Atualizar</button>
       <button class="btn" id="logout" type="button">Sair</button>
     </div>
@@ -526,7 +527,7 @@ body {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'capa-' + (orderNumber || designId) + '.stl';
+      a.download = 'desenho-' + (orderNumber || designId) + '-branco.stl';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -670,7 +671,7 @@ body {
     }
 
     if (o.status === 'approved') {
-      actions.append(button('Descarregar STL', 'btn-go', function () {
+      actions.append(button('STL do desenho', 'btn-go', function () {
         downloadSTL(designId, o.orderNumber);
       }));
       actions.append(button('Marcar impressa', '', function () {
@@ -679,7 +680,7 @@ body {
     }
 
     if (o.status === 'printed') {
-      actions.append(button('Descarregar STL', '', function () {
+      actions.append(button('STL do desenho', '', function () {
         downloadSTL(designId, o.orderNumber);
       }));
     }
@@ -744,6 +745,23 @@ body {
     e.preventDefault();
     const v = $('tok').value.trim();
     if (v) signIn(v);
+  });
+
+  // The cover is the same every time; it is here so a new machine can be set
+  // up without going hunting for the file.
+  $('cover').addEventListener('click', async function () {
+    showError('');
+    try {
+      const res = await api('/admin/cover.stl');
+      if (!res.ok) { showError('Não foi possível obter a capa (HTTP ' + res.status + ').'); return; }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = 'capa-tm7-preto.stl';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    } catch (err) {
+      if (err.message !== 'unauthorised') showError(err.message);
+    }
   });
 
   $('refresh').addEventListener('click', load);

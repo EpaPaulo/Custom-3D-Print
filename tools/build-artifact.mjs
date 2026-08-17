@@ -79,8 +79,8 @@ const framing = `
 
 body { background: var(--af-ground); color: var(--af-ink); }
 
-/* Both routes to an STL: the viewer cannot save one, so neither is offered. */
-.topbar, #btn-stl-2 { display: none !important; }
+/* Every route to an STL: the viewer cannot save one, so none is offered. */
+.topbar, #btn-cover-2, #btn-design-2 { display: none !important; }
 
 .af-bar {
   flex: 0 0 auto;
