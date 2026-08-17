@@ -1,3 +1,6 @@
 node_modules/
-*.stl
 .DS_Store
+
+# Generated exports, but never the bundled template.
+*.stl
+!assets/model/*.stl
