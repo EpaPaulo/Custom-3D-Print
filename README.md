@@ -167,7 +167,7 @@ Then open <http://localhost:8099/>.
 
 **Settings → Pages → Source: _Deploy from a branch_ → `main` → `/ (root)` → Save.**
 
-The site is then served at `https://epapaulo.github.io/epa_site/`, and every
+The site is then served at `https://epapaulo.github.io/3dprint/`, and every
 push to `main` republishes it. There is no build step, so no workflow is
 needed; `.nojekyll` is present so the asset folders are served untouched.
 
