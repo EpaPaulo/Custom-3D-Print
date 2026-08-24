@@ -46,13 +46,29 @@ matching the preview the customer approved, and you find out from a complaint.
 A bitmap cannot drift.
 
 It costs nothing in safety, because the geometry is still built here, by our own
-code, from the fixed template. The customer supplies a bounded greyscale image;
+code, from the fixed models. The customer supplies a bounded greyscale image;
 they can never hand you triangles to put on a printer. Uploading a finished STL
 would be the dangerous design, and this is not that.
 
-The design body's surface sits exactly on the cover's face and runs inward, so
-it occupies the cover rather than standing on it — which is what makes the two
+The design body's surface sits exactly on the model's face and runs inward, so
+it occupies the part rather than standing on it — which is what makes the two
 filaments meet flush.
+
+### Models
+
+The backend builds every model in the `models` list in `src/config.js`, which
+has to track `MODELS` in `assets/js/app.js` — the configurator stamps an id
+onto each design, and that id picks the mesh, the face, and the usable area the
+mask is measured against. An id this backend does not know is refused at
+`POST /api/designs`, so a design can never be fulfilled on the wrong mesh.
+
+Meshes are parsed once and kept, so a shop that only ever sells one never pays
+for the other. `MODEL_DIR` says where the files live.
+
+A model with a **round** face — the TM7 base — reports `round: true` and a
+`usableDiameter` rather than a rectangle, and its design is cut to that disc as
+the body is built. The configurator's preview applies the same cut, so what
+gets printed is what the customer approved.
 
 ## Endpoints
 
@@ -60,7 +76,8 @@ filaments meet flush.
 
 | | |
 |---|---|
-| `GET /api/template` | template dimensions and usable design area |
+| `GET /api/models` | every model on offer, with dimensions and usable area |
+| `GET /api/template?model=<id>` | one model's dimensions; the first one if unasked |
 | `POST /api/designs` | `{ config, maskPng, previewPng }` → `{ id, previewUrl }` |
 | `GET /api/designs/:id` | design metadata — **no mask, no STL** |
 | `GET /api/designs/:id/preview.png` | the preview, for the cart thumbnail |
@@ -72,15 +89,18 @@ filaments meet flush.
 | `GET /admin` | the review console (HTML, no token needed to load) |
 | `GET /admin/queue?status=pending_review` | orders awaiting review |
 | `POST /admin/orders/:id/status` | `{ status, note }` — approve / reject / printed |
-| `GET /admin/cover.stl` | the black cover — same every order, fetch once |
+| `GET /admin/cover.stl?model=<id>` | that model's black body — same every order, fetch once |
 | `GET /admin/designs/:id/model.stl` | the white design body for this order |
 
 `model.stl` refuses a design whose order has not been approved (`409`). Pass
 `?force=1` to override for a design with no order behind it — a sample, or a
-proof for a customer.
+proof for a customer. Both STL routes name the model in an `X-Model-Id` header
+and in the download filename, so a file that has left the console can still be
+paired with the right black body. `/admin/queue` reports each order's `models`
+for the same reason: nothing can be printed until the right body is on the bed.
 
-Only the design varies per order, so the cover is not reissued each time. In
-the slicer, load the two as *one object with two parts* — they share a
+Only the design varies per order, so the black body is not reissued each time.
+In the slicer, load the two as *one object with two parts* — they share a
 coordinate system, so they land aligned — and assign a filament to each. They
 cannot be one file: STL carries no notion of parts or colour, so anything
 merged would print in a single colour.
@@ -94,8 +114,9 @@ trusted. Register it in Shopify for the **Order creation** topic.
 ## The review console
 
 `GET /admin` serves a single-page console for working the queue: filter by
-status with live counts, see each order's preview, approve or reject with a
-reason, pull the print file, and mark it printed.
+status with live counts, see each order's preview and which model it needs,
+approve or reject with a reason, pull the print file or a model's black body,
+and mark it printed.
 
 The page itself carries no data and no credential, so it loads without a
 token — it asks for one, keeps it in `sessionStorage` (not `localStorage`: it
@@ -127,7 +148,10 @@ npm test                  # 14 checks, real HTTP against a temp data dir
 
 `storefront/demo.html` is a working product page — open it with both servers
 running to see the whole flow. It stubs Shopify's `/cart/add.js`, which does
-not exist off-platform, but the design really is sent to the backend.
+not exist off-platform, but the design really is sent to the backend. Its own
+`?model=` picks which product it stands in for (`demo.html?model=base` for the
+round base) and passes it to the iframe; a real theme hardcodes one per
+product.
 
 Embed the configurator with **`?shop=1`**. That mode drops its own header, the
 parametric generator and, critically, every route to the STL — including the
@@ -136,10 +160,10 @@ give away the product.
 
 One page sells one model. `?shop=1` pins the configurator to the display cover;
 `?shop=1&model=base` pins it to the round base instead, and the picker
-disappears either way. **The backend renders one model too**, so a second
-product needs a second backend with `TEMPLATE_STL` and `TEMPLATE_MODEL` set to
-match — a design naming a model this server does not build is refused at
-`POST /api/designs` rather than fulfilled on the wrong mesh.
+disappears either way. One backend serves them all — each design says which
+model it is, and the console tells the operator which black body an order
+needs — so a second product is a second Shopify product and a second iframe
+URL, not a second deployment.
 
 Add the configurator and `storefront/configurator-bridge.js` to the product
 page (theme app extension, or a `<script type="module">`), then:
@@ -199,9 +223,11 @@ needs to change.
 ```
 
 They have no DOM dependencies and run unchanged under Node. To split the repos,
-copy those files (plus `assets/model/tm7-cover.stl`) in and fix the two import
-paths. Keep one source of truth for the geometry — if the configurator's
-geometry and the backend's ever diverge, previews stop matching prints.
+copy those files in, point `MODEL_DIR` at a copy of `assets/model/`, and fix
+the two import paths. Keep one source of truth for the geometry — if the
+configurator's geometry and the backend's ever diverge, previews stop matching
+prints. The model registries are the other thing to keep in step: `models` in
+`src/config.js` and `MODELS` in the configurator's `app.js` share their ids.
 
 ## Before you sell anything
 

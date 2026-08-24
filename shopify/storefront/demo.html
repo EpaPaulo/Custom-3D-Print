@@ -108,12 +108,12 @@
   <div class="product">
 
     <div class="stage">
-      <iframe data-cover-frame src="../../index.html?shop=1" title="Personalizador de capa"></iframe>
+      <iframe data-cover-frame src="../../index.html?shop=1" title="Personalizador"></iframe>
     </div>
 
     <div>
-      <h1>Capa personalizada para Bimby TM7</h1>
-      <p class="sub">Impressa em 3D por encomenda, com o seu texto ou logótipo em relevo.</p>
+      <h1 id="p-title">Capa personalizada para Bimby TM7</h1>
+      <p class="sub">Impressa em 3D por encomenda, com o seu texto ou logótipo a duas cores.</p>
 
       <p class="price">29,90 €</p>
       <p class="vat">IVA incluído. Envio calculado no checkout.</p>
@@ -139,7 +139,7 @@
       <p class="err" data-cover-error></p>
 
       <div class="added" id="added">
-        <img id="added-img" alt="Pré-visualização da capa encomendada">
+        <img id="added-img" alt="Pré-visualização da peça encomendada">
         <div>
           <b>Adicionado ao carrinho</b>
           <code id="added-id"></code>
@@ -148,9 +148,9 @@
 
       <ul class="facts">
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
-            Encaixa no ecrã de 10" do TM7 — 253,4 × 172,4 mm.</li>
+            <span id="p-fit">Encaixa no ecrã de 10" do TM7 — 253,4 × 172,4 mm.</span></li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
-            Relevo até 4 mm, em PLA ou PETG.</li>
+            Desenho a duas cores, até 4 mm de profundidade, em PLA ou PETG.</li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
             Cada desenho é revisto por nós antes de ir para a impressora.</li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
@@ -170,12 +170,37 @@
 <script type="module">
   import { autoWire } from './configurator-bridge.js';
 
+  const params = new URLSearchParams(location.search);
+
   // Point this at your deployed backend.
-  const API_BASE = new URLSearchParams(location.search).get('api')
-    || 'http://localhost:3111';
+  const API_BASE = params.get('api') || 'http://localhost:3111';
+
+  // One product page sells one model, and it says so in the iframe URL. This
+  // demo takes the same ?model= so both products can be tried from one file;
+  // a real theme would hardcode it per product.
+  const MODEL = params.get('model') || 'cover';
+  const frame = document.querySelector('[data-cover-frame]');
+  frame.src = `../../index.html?shop=1&model=${encodeURIComponent(MODEL)}`;
 
   const cta = document.querySelector('[data-cover-add]');
   const qty = document.getElementById('qty');
+
+  const mm = (v) => String(Math.round(v));
+
+  // Copy the backend already knows: it measures the mesh, so the page never
+  // has to repeat dimensions that could drift out of step with the file. It
+  // needs this origin in ALLOWED_ORIGINS; without that the page keeps the copy
+  // it was written with, which is the right way for a demo to fail.
+  fetch(`${API_BASE}/api/template?model=${encodeURIComponent(MODEL)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((m) => {
+      if (!m) return;
+      document.getElementById('p-title').textContent = m.label;
+      document.getElementById('p-fit').textContent = m.round
+        ? `Disco liso de Ø ${mm(m.usableDiameter)} mm para personalizar.`
+        : `Área personalizável de ${mm(m.usableWidth)} × ${mm(m.usableHeight)} mm.`;
+    })
+    .catch(() => { /* the demo still works with the copy already on the page */ });
 
   // The configurator announces itself once it has something to show.
   window.addEventListener('message', (e) => {
