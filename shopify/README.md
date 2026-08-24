@@ -153,6 +153,13 @@ not exist off-platform, but the design really is sent to the backend. Its own
 round base) and passes it to the iframe; a real theme hardcodes one per
 product.
 
+Its `PRODUCTS` map stands in for the catalogue — title, price and colour
+variants per model, with a distinct variant id per row, exactly what Liquid
+would emit. None of it comes from this backend: it builds geometry, and a
+catalogue is not its business. Only the measurements are read from
+`/api/template`, so the page cannot quote dimensions that have drifted out of
+step with the mesh.
+
 Embed the configurator with **`?shop=1`**. That mode drops its own header, the
 parametric generator and, critically, every route to the STL — including the
 export function itself, not just the buttons. Handing a shopper the model would
