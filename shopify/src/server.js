@@ -66,6 +66,14 @@ export function createApp() {
         return res.status(400).json({ error: 'config is required' });
       }
 
+      // This server renders one model. A design built on another would come
+      // out on the wrong mesh, and it would only show once someone had paid.
+      if (design.model != null && design.model !== config.modelId) {
+        return res.status(400).json({
+          error: `this shop builds the "${config.modelId}" model, not "${design.model}"`,
+        });
+      }
+
       const mask = decodeBase64Png(maskPng, config.maxUploadBytes);
       if (!mask) return res.status(400).json({ error: 'maskPng is required' });
 
@@ -76,6 +84,7 @@ export function createApp() {
       const preview = decodeBase64Png(previewPng, config.maxPreviewBytes);
 
       const record = await store.putDesign({
+        model: config.modelId,
         colourDepth: design.colourDepth,
         cell: design.cell,
         // Kept for support and re-editing. Never used to build geometry.

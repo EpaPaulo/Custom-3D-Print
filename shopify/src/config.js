@@ -14,6 +14,12 @@ export const config = {
   templatePath: process.env.TEMPLATE_STL ||
     path.join(root, '..', 'assets', 'model', 'tm7-cover.stl'),
 
+  // Which of the configurator's models `templatePath` actually is. The
+  // configurator offers several and stamps the chosen one's id onto every
+  // design; one server renders one model, so a design naming a different one
+  // is refused rather than fulfilled on the wrong mesh. Set both together.
+  modelId: process.env.TEMPLATE_MODEL || 'cover',
+
   // Shopify's webhook signing secret. Without it, webhooks are refused rather
   // than trusted — an unsigned order is not an order.
   webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET || '',

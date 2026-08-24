@@ -107,8 +107,9 @@ function assertOrderable(design) {
     throw new BridgeError('Adicione texto ou uma imagem antes de comprar.');
   }
   if (design.config.mode !== 'template') {
-    // Custom sizes are a design tool, not a product: the shop prints one cover.
-    throw new BridgeError('Só a capa TM7 padrão pode ser encomendada.');
+    // Custom sizes are a design tool, not a product: the shop prints the
+    // supplied models, at the measurements that make them fit the machine.
+    throw new BridgeError('Só os modelos padrão podem ser encomendados.');
   }
 }
 
