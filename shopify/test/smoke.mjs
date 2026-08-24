@@ -88,6 +88,31 @@ await check('POST /api/designs stores a design', async () => {
   designId = r.body.id;
 });
 
+await check('a design built on another model is refused', async () => {
+  const r = await json('/api/designs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      config: { model: 'base', colourDepth: 1.2, cell: 0.6 },
+      maskPng: maskB64,
+    }),
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /cover/);
+});
+
+await check('a design naming this shop\'s own model is accepted', async () => {
+  const r = await json('/api/designs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      config: { model: 'cover', colourDepth: 1.2, cell: 0.6 },
+      maskPng: maskB64,
+    }),
+  });
+  assert.equal(r.status, 201);
+});
+
 await check('a mask with the wrong aspect ratio is refused at fulfilment', async () => {
   const bad = makeMaskPng(100, 100).toString('base64');
   const created = await json('/api/designs', {

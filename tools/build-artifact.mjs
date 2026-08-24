@@ -4,15 +4,15 @@
 //   npm install && npm run artifact
 //
 // An artifact is one HTML file behind a strict CSP: no CDN, no fetches to
-// other hosts, no sibling assets. So three.js, the app, the stylesheet and the
-// template STL all end up inside the page.
+// other hosts, no sibling assets. So three.js, the app, the stylesheet and
+// every model STL all end up inside the page.
 //
 // Nothing in assets/ is modified to make this work. Two things differ in the
 // published copy, and both are arranged from here rather than by adding modes
 // to the app:
 //
-//   - The app fetches the template by URL. There is no server, so `fetch` is
-//     shimmed to answer that one request from an embedded copy.
+//   - The app fetches models by URL. There is no server, so `fetch` is shimmed
+//     to answer those requests from embedded copies.
 //   - The artifact viewer's save allowlist has no `.stl` entry, so the STL
 //     buttons are hidden and the preview PNG is offered instead, through the
 //     viewer's own downloads capability.
@@ -33,7 +33,16 @@ const TITLE = 'Personalizador de Capa TM7';
 
 const css = readFileSync(join(REPO, 'assets/css/style.css'), 'utf8');
 const html = readFileSync(join(REPO, 'index.html'), 'utf8');
-const stlB64 = readFileSync(join(REPO, 'assets/model/tm7-cover.stl')).toString('base64');
+
+// Every model the app offers has to travel with it. The names are matched
+// against the app's own fetch URLs, so this list must track the MODELS
+// registry in assets/js/app.js.
+const MODEL_FILES = ['tm7-cover.stl', 'tm7-base.stl'];
+const models = MODEL_FILES.map((name) => ({
+  name,
+  b64: readFileSync(join(REPO, 'assets/model', name)).toString('base64'),
+}));
+const stlB64Len = models.reduce((n, m) => n + m.b64.length, 0);
 
 // The app's own markup, minus its module script — the bundle replaces that.
 const body = html
@@ -158,20 +167,26 @@ body { background: var(--af-ground); color: var(--af-ink); }
 `;
 
 const glue = `
-// No server here, so the template travels inside the page and the app's fetch
-// for the model is answered from memory. Everything else falls through.
+// No server here, so the models travel inside the page and the app's fetches
+// for them are answered from memory. Everything else falls through. Decoding
+// is deferred until a model is actually picked, so opening the page only pays
+// for the one it starts on.
 (function () {
-  var B64 = "${stlB64}";
+  var B64 = {
+${models.map((m) => `    ${JSON.stringify(m.name)}: "${m.b64}"`).join(',\n')}
+  };
   function toBytes(b64) {
     var bin = atob(b64), out = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
-  var template = toBytes(B64);
   var realFetch = window.fetch.bind(window);
   window.fetch = function (url, opts) {
-    if (String(url).indexOf('tm7-cover.stl') !== -1) {
-      return Promise.resolve(new Response(template.buffer.slice(0)));
+    var href = String(url);
+    for (var name in B64) {
+      if (href.indexOf(name) !== -1) {
+        return Promise.resolve(new Response(toBytes(B64[name]).buffer));
+      }
     }
     return realFetch(url, opts);
   };
@@ -252,9 +267,8 @@ ${framing}
     <span>Bimby TM7</span>
   </div>
   <div class="af-spec">
-    <span>Capa <b>253,4 &times; 172,4 &times; 10 mm</b></span>
-    <span>&Aacute;rea &uacute;til <b>236 &times; 155 mm</b></span>
-    <span>Relevo <b>0,2 &ndash; 4 mm</b></span>
+    <span>Modelos <b>capa do ecr&atilde; &middot; base</b></span>
+    <span>Espessura da cor <b>0,2 &ndash; 4 mm</b></span>
   </div>
   <button type="button" class="af-save" id="af-save" disabled>Guardar imagem</button>
 </header>
@@ -312,6 +326,6 @@ const kb = (n) => `${(n / 1024).toFixed(0)} kB`;
 console.log(`wrote ${OUT}`);
 console.log(`  total    ${(page.length / 1048576).toFixed(2)} MB`);
 console.log(`  bundle   ${kb(bundle.length)}   (three.js + app, tree-shaken)`);
-console.log(`  template ${kb(stlB64.length)}   (STL, base64)`);
+console.log(`  models   ${kb(stlB64Len)}   (${models.length} STLs, base64)`);
 console.log(`  css      ${kb(css.length + framing.length)}`);
 console.log('\nPublish with the Artifact tool: favicon 🍲, capabilities {"downloads": true}');

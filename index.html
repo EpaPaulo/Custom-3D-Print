@@ -32,14 +32,11 @@
   <aside class="panel" id="panel">
 
     <section class="group">
-      <h2>Capa</h2>
+      <h2>Modelo</h2>
 
       <div class="field" id="base-field">
-        <label>Modelo base</label>
-        <div class="seg" id="base-seg">
-          <button type="button" data-val="template" class="on">Template TM7</button>
-          <button type="button" data-val="custom">Medidas próprias</button>
-        </div>
+        <label for="f-model">Modelo base</label>
+        <select id="f-model"></select>
       </div>
 
       <div id="template-info">
@@ -47,7 +44,7 @@
           <div><dt>Dimensões</dt><dd id="t-size">—</dd></div>
           <div><dt>Área utilizável</dt><dd id="t-area">—</dd></div>
         </dl>
-        <p class="note">Medidas fixas do template — a malha original não é alterada.</p>
+        <p class="note" id="t-note">Medidas fixas do template — a malha original não é alterada.</p>
       </div>
 
       <div id="custom-dims" hidden>

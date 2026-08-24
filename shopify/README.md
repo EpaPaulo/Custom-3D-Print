@@ -130,9 +130,16 @@ running to see the whole flow. It stubs Shopify's `/cart/add.js`, which does
 not exist off-platform, but the design really is sent to the backend.
 
 Embed the configurator with **`?shop=1`**. That mode drops its own header, the
-base-model switch and, critically, every route to the STL — including the
+parametric generator and, critically, every route to the STL — including the
 export function itself, not just the buttons. Handing a shopper the model would
 give away the product.
+
+One page sells one model. `?shop=1` pins the configurator to the display cover;
+`?shop=1&model=base` pins it to the round base instead, and the picker
+disappears either way. **The backend renders one model too**, so a second
+product needs a second backend with `TEMPLATE_STL` and `TEMPLATE_MODEL` set to
+match — a design naming a model this server does not build is refused at
+`POST /api/designs` rather than fulfilled on the wrong mesh.
 
 Add the configurator and `storefront/configurator-bridge.js` to the product
 page (theme app extension, or a `<script type="module">`), then:
