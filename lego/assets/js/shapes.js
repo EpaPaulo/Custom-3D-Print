@@ -1,11 +1,17 @@
 // Plate outlines, and which stud positions survive them.
 //
-// Every shape is produced as a single closed polygon in millimetres, wound
-// counter-clockwise, centred on the origin and fitted to the plate's bounding
-// box. Keeping the outline analytic — rather than snapping it to the stud grid
+// Every shape is produced as a set of closed polygons in millimetres, centred
+// on the origin and fitted to the plate's bounding box: one outer ring wound
+// counter-clockwise, plus a hole ring wound clockwise for each opening in it.
+// Most shapes have no holes at all; letters are what the holes are for, since
+// an O without its counter is not an O. Keeping the outline analytic — rather than snapping it to the stud grid
 // — is what lets a round plate come out actually round instead of stepped; the
 // studs are then filtered against the outline afterwards, so a stud only exists
 // where there is plate under all of it.
+
+import { FONTS, CHARACTERS, fontById } from './glyphs.js';
+
+export { FONTS, CHARACTERS, fontById };
 
 const TAU = Math.PI * 2;
 
@@ -39,6 +45,10 @@ export const SHAPES = [
   { id: 'candycane', label: 'Bengala doce', params: [], size: [14, 26] },
   { id: 'pumpkin', label: 'Abóbora', params: [], size: [22, 22] },
   { id: 'ghost', label: 'Fantasma', params: [], size: [20, 24] },
+  // The only shape whose width is not the customer's to set: a letter squashed
+  // to a width someone picked is a different letter. `depth` is its height, and
+  // the width follows from the glyph.
+  { id: 'text', label: 'Letra / número', params: ['char', 'font'], size: [12, 20], derivedWidth: true },
 ];
 
 export const shapeById = (id) => SHAPES.find((s) => s.id === id);
@@ -53,24 +63,28 @@ export const shapeById = (id) => SHAPES.find((s) => s.id === id);
  */
 export function buildOutline(spec, w, h, chord = 0.4) {
   switch (spec.shape) {
-    case 'ellipse': return ellipse(w, h, chord);
-    case 'polygon': return regular(w, h, spec.sides, spec.rotation);
-    case 'star': return star(w, h, spec.points, spec.innerRatio, spec.rotation);
+    case 'text': return glyph(w, h, chord, spec.char, spec.font);
+    case 'ellipse': return solid(ellipse(w, h, chord));
+    case 'polygon': return solid(regular(w, h, spec.sides, spec.rotation));
+    case 'star': return solid(star(w, h, spec.points, spec.innerRatio, spec.rotation));
     // Arms are counted in studs, so they are measured against the *scaled*
     // pitch — the grid the studs actually land on — not the nominal one.
-    case 'cross': return cross(w, h, spec.arm * spec.pitch * spec.scale);
-    case 'lshape': return lshape(
-      w, h, spec.armX * spec.pitch * spec.scale, spec.armY * spec.pitch * spec.scale);
-    case 'heart': return heart(w, h, chord);
-    case 'santa': return santa(w, h, chord);
-    case 'bunny': return bunny(w, h, chord);
-    case 'candycane': return candycane(w, h, chord);
-    case 'pumpkin': return pumpkin(w, h, chord);
-    case 'ghost': return ghost(w, h, chord);
+    case 'cross': return solid(cross(w, h, spec.arm * spec.pitch * spec.scale));
+    case 'lshape': return solid(lshape(
+      w, h, spec.armX * spec.pitch * spec.scale, spec.armY * spec.pitch * spec.scale));
+    case 'heart': return solid(heart(w, h, chord));
+    case 'santa': return solid(santa(w, h, chord));
+    case 'bunny': return solid(bunny(w, h, chord));
+    case 'candycane': return solid(candycane(w, h, chord));
+    case 'pumpkin': return solid(pumpkin(w, h, chord));
+    case 'ghost': return solid(ghost(w, h, chord));
     case 'rect':
-    default: return roundedRect(w, h, spec.corner, chord);
+    default: return solid(roundedRect(w, h, spec.corner, chord));
   }
 }
+
+// A shape with nothing cut out of it, which is all of them but the letters.
+const solid = (outer) => ({ outer, holes: [] });
 
 // How many segments a curve of the given length needs to stay within `chord`
 // of the true curve. Bounded at both ends: too few looks faceted, too many
@@ -222,6 +236,146 @@ function resampleClosed(pts, n) {
     }
   }
   return dedupe(out);
+}
+
+// ---------------------------------------------------------------------------
+// Letters and numbers
+// ---------------------------------------------------------------------------
+
+export class GlyphError extends Error {}
+
+// How finely a quadratic segment is walked before the arc-length resampling
+// takes over. Dense rather than accurate: the resampling is what decides the
+// mesh's resolution, and this only has to give it a smooth curve to walk.
+const QUAD_STEPS = 12;
+
+/**
+ * The outline of one character, as an outer ring plus a hole for each counter.
+ *
+ * The glyph is fitted to the plate's box like any other shape. That is only
+ * safe because the caller has already sized the box from the glyph's own
+ * proportions — see the derived width in plate.js. Stretch a letter to a width
+ * somebody picked off a slider and you get a different letter.
+ */
+function glyph(w, h, chord, char, fontId) {
+  const font = fontById(fontId);
+  if (!font) throw new GlyphError(`Unknown font "${String(fontId).slice(0, 24)}".`);
+  const g = font.glyphs[char];
+  if (!g) throw new GlyphError(`No glyph for "${String(char).slice(0, 4)}".`);
+
+  const contours = g.c.map(quadContour).filter((c) => c.length >= 3);
+  if (!contours.length) throw new GlyphError(`"${char}" has no outline.`);
+
+  // A font says which contours are material and which are openings by winding
+  // them opposite ways round, so that is what decides here — not which is
+  // biggest, which gets a dotted zero wrong. The largest is the letter itself;
+  // of the rest, the ones wound against it are its counters.
+  const areas = contours.map(polygonArea);
+  let outerAt = 0;
+  for (let i = 1; i < areas.length; i++) {
+    if (Math.abs(areas[i]) > Math.abs(areas[outerAt])) outerAt = i;
+  }
+  const material = Math.sign(areas[outerAt]);
+
+  // Anything wound the same way as the letter is a separate island of material
+  // — the dot inside a monospaced zero, say. A plate is one piece, so an island
+  // floating in the middle of a counter cannot be printed and is dropped: the
+  // zero comes out undotted rather than in two parts.
+  const keep = [contours[outerAt]];
+  for (let i = 0; i < contours.length; i++) {
+    if (i !== outerAt && Math.sign(areas[i]) !== material) keep.push(contours[i]);
+  }
+
+  const rings = fitRingsToBox(keep, w, h);
+  const outer = rings[0];
+  const holes = rings.slice(1);
+
+  const detail = (ring) => resampleClosed(ring, segmentsFor(perimeter(ring), chord, 40, 900));
+
+  return {
+    outer: detail(outer),
+    // Holes run the other way round from the outer ring, which is what tells
+    // the triangulator and the wall which side the material is on.
+    holes: holes.map((ring) => detail(ring).slice().reverse()),
+  };
+}
+
+// One TrueType contour, flattened. The format leaves the on-curve point between
+// two consecutive control points implied, at their midpoint, which is restored
+// here before the quadratics are walked.
+function quadContour(flat) {
+  const n = flat.length / 3;
+  if (n < 2) return [];
+
+  const expanded = [];
+  for (let i = 0; i < n; i++) {
+    const x = flat[i * 3];
+    const y = flat[i * 3 + 1];
+    const on = flat[i * 3 + 2];
+    const j = ((i - 1 + n) % n) * 3;
+    if (!on && !flat[j + 2]) expanded.push([(x + flat[j]) / 2, (y + flat[j + 1]) / 2, 1]);
+    expanded.push([x, y, on]);
+  }
+
+  const start = expanded.findIndex((pt) => pt[2]);
+  if (start < 0) return [];
+
+  const order = [];
+  for (let i = 0; i < expanded.length; i++) order.push(expanded[(start + i) % expanded.length]);
+  order.push(order[0]);
+
+  const pts = [[order[0][0], order[0][1]]];
+  let cur = order[0];
+  for (let i = 1; i < order.length;) {
+    const p = order[i];
+    if (p[2]) {
+      pts.push([p[0], p[1]]);
+      cur = p;
+      i += 1;
+    } else {
+      const next = order[i + 1];
+      for (let k = 1; k <= QUAD_STEPS; k++) {
+        const t = k / QUAD_STEPS;
+        const u = 1 - t;
+        pts.push([
+          u * u * cur[0] + 2 * u * t * p[0] + t * t * next[0],
+          u * u * cur[1] + 2 * u * t * p[1] + t * t * next[1],
+        ]);
+      }
+      cur = next;
+      i += 2;
+    }
+  }
+  return pts;
+}
+
+/** A glyph's width over its height, which is what decides how wide its plate is. */
+export function glyphAspect(fontId, char) {
+  const font = fontById(fontId);
+  const g = font && font.glyphs[char];
+  if (!g) return 1;
+  const width = g.b[2] - g.b[0];
+  const height = g.b[3] - g.b[1];
+  return height > 0 ? width / height : 1;
+}
+
+// Every ring scaled and centred by the same transform, so they keep their
+// positions relative to each other.
+function fitRingsToBox(rings, w, h) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const sx = (maxX - minX) > 1e-9 ? w / (maxX - minX) : 1;
+  const sy = (maxY - minY) > 1e-9 ? h / (maxY - minY) : 1;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return rings.map((ring) => dedupe(ring.map(([x, y]) => [(x - cx) * sx, (y - cy) * sy])));
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +587,13 @@ function dedupe(pts) {
   return ensureCCW(out);
 }
 
+/** The plate's own area: the outer ring less whatever is cut out of it. */
+export function ringsArea(rings) {
+  let area = Math.abs(polygonArea(rings.outer));
+  for (const hole of rings.holes) area -= Math.abs(polygonArea(hole));
+  return area;
+}
+
 export function polygonArea(pts) {
   let sum = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -476,19 +637,39 @@ export function distanceToOutline(pts, x, y) {
 }
 
 /**
+ * Whether a point is on the plate: inside the outer ring and in none of the
+ * holes.
+ */
+export function inMaterial(rings, x, y) {
+  if (!pointInPolygon(rings.outer, x, y)) return false;
+  for (const hole of rings.holes) if (pointInPolygon(hole, x, y)) return false;
+  return true;
+}
+
+/** Distance to the nearest edge of the plate, counting the edges of holes. */
+export function distanceToEdge(rings, x, y) {
+  let best = distanceToOutline(rings.outer, x, y);
+  for (const hole of rings.holes) {
+    const d = distanceToOutline(hole, x, y);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
  * Where the studs go.
  *
  * The grid is the same one a real plate uses: `nx` by `ny` positions at the
  * pitch, centred on the footprint, which leaves (pitch - clearance) / 2 between
  * the outermost stud centre and the edge — 3.9 mm at LEGO's dimensions, exactly
  * what the reference baseplate measures. A position is kept only when the whole
- * stud circle, plus `margin`, lies inside the outline, so no stud is ever left
- * hanging over the edge of a round or angled plate.
+ * stud circle, plus `margin`, lies on the plate, so no stud is ever left hanging
+ * over an edge — the inside edge of a letter's counter included.
  *
  * Returns the kept positions along with their grid coordinates, which the
  * patterns need to reason about neighbours.
  */
-export function studGrid(outline, { nx, ny, pitch, radius, margin = 0.3, pattern = 'full' }) {
+export function studGrid(rings, { nx, ny, pitch, radius, margin = 0.3, pattern = 'full' }) {
   const need = radius + margin;
   const kept = [];
   const occupied = new Set();
@@ -497,8 +678,8 @@ export function studGrid(outline, { nx, ny, pitch, radius, margin = 0.3, pattern
     for (let i = 0; i < nx; i++) {
       const x = (i - (nx - 1) / 2) * pitch;
       const y = (j - (ny - 1) / 2) * pitch;
-      if (!pointInPolygon(outline, x, y)) continue;
-      if (distanceToOutline(outline, x, y) < need) continue;
+      if (!inMaterial(rings, x, y)) continue;
+      if (distanceToEdge(rings, x, y) < need) continue;
       kept.push({ i, j, x, y });
       occupied.add(`${i},${j}`);
     }

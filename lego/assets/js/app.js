@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   buildPlate, normaliseSpec, resolve, estimate, SpecError,
-  SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS,
+  SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from './plate.js';
 import { buildOutline } from './shapes.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
@@ -96,18 +96,25 @@ function safeSpec() {
 // is drawn in. Nothing here describes what a pumpkin looks like — so the button
 // cannot end up showing something the generator does not build.
 function shapeIcon(shape) {
-  const spec = normaliseSpec({ shape: shape.id, width: shape.size[0], depth: shape.size[1] });
+  // The letter button shows the letter currently chosen, so the picker says
+  // what it will give you rather than showing a stand-in A forever.
+  const spec = normaliseSpec(shape.id === 'text'
+    ? { shape: 'text', depth: shape.size[1], char: state().char, font: state().font }
+    : { shape: shape.id, width: shape.size[0], depth: shape.size[1] });
   const d = resolve(spec);
   // Coarse on purpose: the glyph is 24 px across, and no detail finer than that
   // survives being drawn at that size.
-  const outline = buildOutline(spec, d.width, d.depth, Math.max(d.width, d.depth) / 30);
+  const rings = buildOutline(spec, d.width, d.depth, Math.max(d.width, d.depth) / 30);
+  const all = [rings.outer, ...rings.holes];
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const [x, y] of outline) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+  for (const ring of all) {
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
   }
 
   // Fit the longer side into 22 of the 24 px, keeping the aspect — a candy cane
@@ -116,11 +123,29 @@ function shapeIcon(shape) {
   const ox = 12 - ((minX + maxX) / 2) * k;
   const oy = 12 + ((minY + maxY) / 2) * k;
 
-  const path = outline
-    .map(([x, y], i) => `${i ? 'L' : 'M'}${(x * k + ox).toFixed(1)} ${(oy - y * k).toFixed(1)}`)
+  const path = all
+    .map((ring) => ring
+      .map(([x, y], i) => `${i ? 'L' : 'M'}${(x * k + ox).toFixed(1)} ${(oy - y * k).toFixed(1)}`)
+      .join('') + 'Z')
     .join('');
 
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}Z"/></svg>`;
+  // evenodd so a letter's counters read as holes rather than filling in.
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="${path}"/></svg>`;
+}
+
+// The bits of state the icons need before `spec` is necessarily valid.
+const state = () => ({ char: spec.char || DEFAULTS.char, font: spec.font || DEFAULTS.font });
+
+// Redraw just the letter button, after the character or the face changes.
+function refreshTextIcon() {
+  const button = $('shapes').querySelector('button[data-shape="text"]');
+  const shape = SHAPES.find((s) => s.id === 'text');
+  if (!button || !shape) return;
+  try {
+    button.innerHTML = `${shapeIcon(shape)}<span>${shape.label}</span>`;
+  } catch {
+    // An unbuildable character is reported by the panel; the icon just waits.
+  }
 }
 
 function buildShapePicker() {
@@ -135,8 +160,12 @@ function buildShapePicker() {
     b.addEventListener('click', () => {
       spec.shape = s.id;
       // Start at the proportions the shape was drawn in. Both sliders still do
-      // what they say; this only decides where they start.
-      if (s.size) [spec.width, spec.depth] = s.size;
+      // what they say; this only decides where they start. A letter's width is
+      // not a slider at all, so only its height is set here.
+      if (s.size) {
+        spec.depth = s.size[1];
+        if (!s.derivedWidth) spec.width = s.size[0];
+      }
       writeControls();
       changed();
     });
@@ -149,6 +178,7 @@ function buildSelects() {
   fill($('f-pattern'), PATTERNS.map((p) => [p.id, p.label]));
   fill($('f-quality'), Object.entries(QUALITIES).map(([id, q]) => [id, q.label]));
   fill($('f-bed'), BEDS.map((b) => [b.id, b.label]));
+  fill($('f-font'), FONTS.map((f) => [f.id, f.label]));
 
   const host = $('swatches');
   for (const c of COLOURS) {
@@ -181,6 +211,8 @@ function fill(select, pairs) {
 function syncShapeFields() {
   const wanted = new Set((SHAPES.find((s) => s.id === spec.shape) || SHAPES[0]).params);
   const map = {
+    char: 'f-char-field',
+    font: 'f-font-field',
     corner: 'f-corner-field',
     sides: 'f-sides-field',
     rotation: 'f-rotation-field',
@@ -191,6 +223,14 @@ function syncShapeFields() {
     armY: 'f-army-field',
   };
   for (const [key, id] of Object.entries(map)) $(id).hidden = !wanted.has(key);
+  $('char-note').hidden = !wanted.has('char');
+
+  // A letter's width follows from the glyph, so there is no slider for it —
+  // and what the other shapes call depth is, for a letter, its height.
+  const shape = SHAPES.find((s) => s.id === spec.shape);
+  const derived = Boolean(shape && shape.derivedWidth);
+  $('width-field').hidden = derived;
+  $('depth-label').firstChild.nodeValue = derived ? 'Altura da letra ' : 'Profundidade ';
 
   for (const b of $('shapes').children) b.classList.toggle('on', b.dataset.shape === spec.shape);
 }
@@ -206,6 +246,8 @@ function writeControls() {
   $('f-quality').value = spec.quality;
   $('f-hollow').checked = spec.hollowStuds;
   $('f-bed').value = view.bed;
+  $('f-char').value = spec.char;
+  $('f-font').value = spec.font;
 
   syncRanges();
 
@@ -255,6 +297,33 @@ function wireControls() {
   }
 
   $('f-hollow').addEventListener('change', () => { spec.hollowStuds = $('f-hollow').checked; changed(); });
+
+  // One character, upper case. Typing a second replaces the first rather than
+  // being ignored, which is what someone correcting a typo means by it.
+  $('f-char').addEventListener('input', () => {
+    const el = $('f-char');
+    // Last character first, then upper-cased: "ß" upper-cases into two, and
+    // doing it the other way round would silently leave an S in the box.
+    const typed = el.value.slice(-1).toUpperCase();
+    el.value = typed;
+    if (!typed) return;                       // mid-edit; wait for a character
+    if (typed.length !== 1 || !CHARACTERS.includes(typed)) {
+      warn(`"${typed}" não existe como placa. Use A–Z ou 0–9.`);
+      return;
+    }
+    spec.char = typed;
+    refreshTextIcon();
+    changed();
+  });
+
+  // Leaving the box empty is not a plate; put back whatever was last built.
+  $('f-char').addEventListener('blur', () => { $('f-char').value = spec.char; });
+
+  $('f-font').addEventListener('change', () => {
+    spec.font = $('f-font').value;
+    refreshTextIcon();
+    changed();
+  });
   $('f-bed').addEventListener('change', () => { view.bed = $('f-bed').value; stats(); save(); });
 
   $('btn-reset').addEventListener('click', () => {
@@ -313,6 +382,9 @@ function refusal() {
     return `Demasiados pinos: ${spec.width} × ${spec.depth} são ${total} posições, ` +
            `e o limite é ${LIMITS.maxStuds}. Reduza uma das dimensões.`;
   }
+  if (spec.shape === 'text' && !CHARACTERS.includes(spec.char)) {
+    return `"${spec.char}" não existe como placa. Use uma letra A–Z ou um algarismo 0–9.`;
+  }
   if (spec.studDiameter >= spec.pitch - 0.2) {
     return 'O pino é largo de mais para o passo da grelha. ' +
            'Reduza o diâmetro do pino ou aumente o passo, em Medidas avançadas.';
@@ -354,9 +426,13 @@ function stats() {
   syncRanges();
 
   const d = dims();
-  $('fit-note').textContent =
-    `Grelha de ${spec.width} × ${spec.depth} ao passo de ${mm(d.pitch)} — ` +
-    `${size.x.toFixed(1)} × ${size.y.toFixed(1)} mm.`;
+  const shape = SHAPES.find((s) => s.id === spec.shape);
+  const built = current.spec;               // the width a letter worked out to
+  $('fit-note').textContent = shape && shape.derivedWidth
+    ? `"${built.char}" fica com ${built.width} pinos de largura — ` +
+      `${size.x.toFixed(1)} × ${size.y.toFixed(1)} mm ao passo de ${mm(d.pitch)}.`
+    : `Grelha de ${spec.width} × ${spec.depth} ao passo de ${mm(d.pitch)} — ` +
+      `${size.x.toFixed(1)} × ${size.y.toFixed(1)} mm.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -498,7 +574,8 @@ renderer.setAnimationLoop(() => {
 
 function filename(ext) {
   const s = safeSpec();
-  return `placa-${s.shape}-${s.width}x${s.depth}.${ext}`;
+  const what = s.shape === 'text' ? `letra-${s.char}-${s.font}` : s.shape;
+  return `placa-${what}-${s.width}x${s.depth}.${ext}`;
 }
 
 function download() {

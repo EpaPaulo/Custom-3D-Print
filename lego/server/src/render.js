@@ -12,7 +12,7 @@
 
 import {
   buildPlate, normaliseSpec, resolve, estimate, SpecError,
-  SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS,
+  SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from '../../assets/js/plate.js';
 import { trianglesToSTL } from '../../assets/js/stl.js';
 import { config } from './config.js';
@@ -29,6 +29,10 @@ export function catalogue() {
     systems: SYSTEMS,
     patterns: PATTERNS,
     qualities: Object.entries(QUALITIES).map(([id, q]) => ({ id, label: q.label })),
+    // Names only. The glyph outlines behind them are tens of kilobytes and are
+    // of no use to a storefront, which sends a character and gets a plate.
+    fonts: FONTS.map((f) => ({ id: f.id, label: f.label })),
+    characters: CHARACTERS,
     defaults: DEFAULTS,
     limits: LIMITS,
     currency: config.price.currency,
@@ -107,6 +111,9 @@ export function renderSTL(input, name = 'plate') {
 
 /** A filename an operator can recognise on a printer's SD card. */
 export function slug(spec) {
-  const shape = String(spec.shape || 'rect').replace(/[^a-z0-9]/gi, '');
-  return `placa-${shape}-${spec.width}x${spec.depth}`;
+  const clean = (v, fallback) => String(v == null || v === '' ? fallback : v).replace(/[^a-z0-9]/gi, '');
+  const what = spec.shape === 'text'
+    ? `letra-${clean(spec.char, 'A')}-${clean(spec.font, 'sans')}`
+    : clean(spec.shape, 'rect');
+  return `placa-${what}-${spec.width}x${spec.depth}`;
 }

@@ -18,7 +18,7 @@ process.env.ALLOWED_ORIGINS = 'https://shop.example.com';
 
 const { createApp } = await import('../src/server.js');
 const store = await import('../src/store.js');
-const { buildPlate, normaliseSpec, SpecError, SHAPES } = await import('../../assets/js/plate.js');
+const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
 
 await store.init();
@@ -138,6 +138,52 @@ await check('stud patterns and hollow studs stay closed', () => {
   }
 });
 
+await check('every letter and number is a closed solid in every face', () => {
+  // The letters are the only shapes with holes in them, so this is the check
+  // that the counter of an O is a hole all the way through rather than a hole
+  // in the top and a lid underneath.
+  for (const font of FONTS) {
+    for (const ch of CHARACTERS) {
+      const plate = buildPlate({ shape: 'text', char: ch, font: font.id, depth: 14 });
+      assert.equal(surfaceFaults(plate.positions), 0, `${font.id} "${ch}" is not closed`);
+      assert.ok(plate.volume > 0, `${font.id} "${ch}" is inside out`);
+      assert.ok(plate.studs.length > 0, `${font.id} "${ch}" has no studs`);
+    }
+  }
+});
+
+await check('the letters that need counters have them, and the rest do not', () => {
+  const holes = (ch) => buildPlate({ shape: 'text', char: ch, depth: 14 }).rings.holes.length;
+  assert.equal(holes('O'), 1);
+  assert.equal(holes('B'), 2);
+  assert.equal(holes('8'), 2);
+  assert.equal(holes('L'), 0);
+  assert.equal(holes('7'), 0);
+  // A monospaced zero is drawn with a dot inside its counter. That dot is a
+  // separate island of material, which a one-piece plate cannot carry, so it
+  // is dropped rather than turned into a second hole.
+  assert.equal(buildPlate({ shape: 'text', char: '0', font: 'mono', depth: 14 }).rings.holes.length, 1);
+});
+
+await check('a letter is sized from its own glyph, not from the width slider', () => {
+  // Whatever width comes in is overruled: a letter squashed to someone else's
+  // width is a different letter.
+  const wide = buildPlate({ shape: 'text', char: 'I', depth: 20, width: 40 });
+  const narrow = buildPlate({ shape: 'text', char: 'W', depth: 20, width: 2 });
+  assert.ok(wide.spec.width < 10, `I came out ${wide.spec.width} studs wide`);
+  assert.ok(narrow.spec.width > 20, `W came out ${narrow.spec.width} studs wide`);
+  // ...and taller means proportionally wider, since the shape is fixed.
+  const small = buildPlate({ shape: 'text', char: 'M', depth: 10 });
+  const big = buildPlate({ shape: 'text', char: 'M', depth: 30 });
+  assert.ok(big.spec.width > small.spec.width * 2.5, 'the letter did not scale with its height');
+});
+
+await check('lowercase is accepted, anything unprintable is refused', () => {
+  assert.equal(normaliseSpec({ shape: 'text', char: 'q' }).char, 'Q');
+  assert.throws(() => normaliseSpec({ shape: 'text', char: '%' }), SpecError);
+  assert.throws(() => normaliseSpec({ shape: 'text', font: 'comic-sans' }), SpecError);
+});
+
 await check('a bed-sized plate stays closed at the finest contour', () => {
   const plate = buildPlate({ shape: 'rect', width: 32, depth: 32, quality: 'fine' });
   assert.equal(surfaceFaults(plate.positions), 0);
@@ -194,6 +240,32 @@ await check('GET /api/catalogue lists what the server will build', async () => {
   assert.ok(body.shapes.some((s) => s.id === 'heart'));
   assert.ok(body.systems.some((s) => s.id === 'lego'));
   assert.ok(body.limits.maxStuds > 0);
+  assert.ok(body.fonts.some((f) => f.id === 'sans'));
+  assert.equal(body.characters.length, 36);
+  // Names, not outlines: the glyph data is tens of kilobytes and no use here.
+  assert.equal(JSON.stringify(body.fonts).includes('glyphs'), false);
+  assert.ok(JSON.stringify(body).length < 20000, 'the catalogue got fat');
+});
+
+await check('POST /api/plates builds a letter and names the file after it', async () => {
+  const { status, body } = await post('/api/plates', { shape: 'text', char: 'r', font: 'serif', depth: 16 });
+  assert.equal(status, 200);
+  assert.equal(body.spec.char, 'R');
+  assert.ok(body.studs > 0);
+
+  const res = await fetch(base + '/api/plates/stl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...adminHeaders },
+    body: JSON.stringify({ shape: 'text', char: 'R', font: 'serif', depth: 16 }),
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition'), /placa-letra-R-serif/);
+});
+
+await check('POST /api/plates refuses a character it has no glyph for', async () => {
+  const { status, body } = await post('/api/plates', { shape: 'text', char: 'ß' });
+  assert.equal(status, 400);
+  assert.match(body.error, /A-Z or 0-9/);
 });
 
 await check('POST /api/plates quotes the reference plate', async () => {

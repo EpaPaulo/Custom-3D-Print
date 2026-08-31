@@ -12,6 +12,8 @@ vendored copy of three.js at `../vendor/`.
 lego/
 ├── index.html          the configurator
 ├── assets/js/          geometry and UI, no build step
+├── assets/fonts/       the notice for the fonts the letters come from
+├── tools/              one-off generator for the glyph data
 ├── server/             order backend (Express)
 └── storefront/         Shopify bridge and a demo product page
 ```
@@ -56,13 +58,16 @@ it is the one setting worth calibrating.
    cane stretched to a square reads as nothing at all, so it is worth starting
    somewhere sensible.
 
-   Each figure is a **single closed outline with no holes**, which is a
+   The figures are each a **single closed outline with no holes**, which is a
    constraint rather than a style: the plate is one solid, so the ghost has no
    cut-out eyes and the pumpkin has no carved face. Whatever makes the figure
    recognisable has to live in its silhouette. Adding one is a pen path in
    `assets/js/shapes.js` and a line in the `SHAPES` list — the picker's icons
    are drawn from the outlines themselves, so there is no second copy of the
    drawing to keep in step.
+
+   **Letters and numbers** are their own shape: type one character, pick a face,
+   and the plate is that character. See below.
 2. **Dimensões** — width and depth in studs. A stud is kept only where the whole
    stud fits inside the outline, so nothing ever hangs over the edge. Pick your
    printer under *Área de impressão* and the app says when a plate stops fitting.
@@ -73,6 +78,31 @@ it is the one setting worth calibrating.
 
 Your settings are kept in `localStorage`, so a refresh won't lose them.
 
+### Letters and numbers
+
+Pick *Letra / número*, type a character and choose a face. The preview updates
+as you type, and the button in the picker shows the character you are on.
+
+- **A–Z and 0–9 only**, upper case. Lowercase is accepted and upper-cased for
+  you — it is not a rendering choice being refused. An "i" is a stem and a
+  separate dot, and a plate that arrives in two pieces is not a plate.
+- **Only the height is yours to set.** A letter's width comes from the letter:
+  an M is wide, an I is not. Stretch one to a width someone picked off a slider
+  and it stops being that letter, so the app works the width back from the
+  glyph and tells you what it came to.
+- **Counters are real holes.** The middle of an O, both halves of an 8, the
+  triangle in an A — they go all the way through, and studs keep their distance
+  from their edges the same way they do from the outside edge.
+- Three faces, all bold. That is not a style decision either: a plate is only
+  useful where a stud fits, and a regular weight's stems come out too thin to
+  hold one.
+
+Two consequences worth knowing before you print. A narrow character carries
+few studs — an I at 20 studs tall is 5 wide — so go taller if you want more to
+build on. And the monospaced zero is drawn with a dot inside its counter; that
+dot is an island of material with nothing joining it to the rest, so it is
+dropped and the zero comes out undotted rather than in two pieces.
+
 ### Printing
 
 Studs up, no supports, no raft. The first layer is what decides whether the
@@ -82,6 +112,23 @@ hard. 0.2 mm layers put nine of them in the 1.8 mm stud.
 Hollow studs save filament and give the brick above something to flex against,
 which many people prefer on printed plates. They are off by default because
 solid studs are what the reference plate has.
+
+## Where the glyphs come from
+
+`assets/js/glyphs.js` is generated, and committed. It holds the outlines for
+A–Z and 0–9 in three faces as TrueType quadratics on a 1000-unit em, about 29 kB
+in total, extracted from the DejaVu fonts by `tools/extract-glyphs.py`.
+
+Nothing reads a font file at runtime, which is the point. The browser previews a
+plate and the backend builds the file that gets printed, and the two have to
+produce identical geometry; they cannot be made to agree about which fonts are
+installed, and a letter that previewed in one face and printed in another would
+be a refund. Rasterising and tracing would have the same problem, and would put
+a canvas in the server's dependencies to boot.
+
+Regenerate with `python3 lego/tools/extract-glyphs.py > lego/assets/js/glyphs.js`,
+which needs the .ttf files present. See `assets/fonts/LICENCE.md` for the notice
+that comes with them.
 
 ## How the mesh is built
 
@@ -95,7 +142,19 @@ in the mesh has exactly one opposite.
 The figures exercise that harder than the geometric shapes do: a candy cane's
 hook and a bunny's ears are narrow enough that the interior tiling below falls
 back to triangulating the whole face, and the ghost's hem puts a concave notch
-between two runs of studs.
+between two runs of studs. The letters go further still — they are the only
+shapes with holes in them, so they are the check that the counter of an O is a
+hole all the way through rather than a hole in the top with a lid underneath.
+
+A shape is a set of rings: one outer, wound counter-clockwise, and one wound
+clockwise for each opening. The same wall code walks all of them, because
+winding the holes the other way round makes "the material is on the left" true
+everywhere, and the wall's normal then comes out pointing away from the plate in
+both cases — outward at the edge, inward into the hole.
+
+Which contours of a glyph are holes is decided by their winding, not by their
+size. A font says so itself by winding openings against the letter, and going by
+size instead gets a monospaced zero wrong.
 
 Two things in `assets/js/plate.js` are worth knowing about before changing it.
 
@@ -144,7 +203,7 @@ and an unguarded print file is the product given away.
 | | |
 |---|---|
 | `GET /api/health` | |
-| `GET /api/catalogue` | shapes, systems, patterns, limits — so a storefront need not hardcode them |
+| `GET /api/catalogue` | shapes, systems, patterns, fonts, limits — so a storefront need not hardcode them |
 | `POST /api/plates` | a spec in, dimensions / stud count / file size / price out. Keeps nothing |
 | `POST /api/plates/stl` | the print file. Admin-only unless `ALLOW_PUBLIC_STL=1` |
 | `POST /api/designs` | keep a design, get an id back |

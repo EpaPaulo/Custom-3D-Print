@@ -12,11 +12,12 @@
 
 import { earcut } from './earcut.js';
 import {
-  SHAPES, shapeById, buildOutline, studGrid, polygonArea,
-  pointInPolygon, distanceToOutline,
+  SHAPES, shapeById, buildOutline, studGrid, ringsArea,
+  inMaterial, distanceToEdge, glyphAspect,
+  FONTS, CHARACTERS, fontById, GlyphError,
 } from './shapes.js';
 
-export { SHAPES, shapeById };
+export { SHAPES, shapeById, FONTS, CHARACTERS, fontById };
 
 export class SpecError extends Error {}
 
@@ -106,6 +107,8 @@ export const DEFAULTS = {
   arm: 5,
   armX: 6,
   armY: 6,
+  char: 'A',
+  font: 'sans',
 };
 
 const num = (v, fallback) => {
@@ -175,6 +178,35 @@ export function normaliseSpec(input = {}) {
   spec.arm = clamp(num(input.arm, DEFAULTS.arm), [1, LIMITS.studs]);
   spec.armX = clamp(num(input.armX, DEFAULTS.armX), [1, LIMITS.studs]);
   spec.armY = clamp(num(input.armY, DEFAULTS.armY), [1, LIMITS.studs]);
+
+  if (input.font != null && input.font !== '') {
+    if (!fontById(input.font)) throw new SpecError(`Unknown font "${String(input.font).slice(0, 24)}".`);
+    spec.font = input.font;
+  }
+  if (input.char != null && input.char !== '') {
+    // Uppercase only, and one of them. Lowercase is not a rendering choice
+    // here: an "i" is a stem and a separate dot, and a plate is one piece.
+    //
+    // The character is taken before it is upper-cased, not after. Some letters
+    // upper-case into two — "ß" becomes "SS" — and doing it the other way round
+    // would quietly hand back a plate reading S.
+    const ch = String(input.char).trim().slice(0, 1).toUpperCase();
+    if (ch.length !== 1 || !CHARACTERS.includes(ch)) {
+      throw new SpecError(`"${String(input.char).slice(0, 4)}" is not one of A-Z or 0-9.`);
+    }
+    spec.char = ch;
+  }
+
+  // A letter's width is not the customer's to set — squash it and it becomes a
+  // different letter — so it is worked back from the glyph and the height they
+  // did set, and the box the outline is fitted to is the shape of the glyph.
+  if (spec.shape === 'text') {
+    const pitch = spec.pitch * spec.scale;
+    const clearance = spec.clearance * spec.scale;
+    const boxHeight = spec.depth * pitch - clearance;
+    const wanted = (boxHeight * glyphAspect(spec.font, spec.char) + clearance) / pitch;
+    spec.width = Math.max(1, Math.min(LIMITS.studs, Math.round(wanted)));
+  }
 
   if (spec.width * spec.depth > LIMITS.maxStuds) {
     throw new SpecError(
@@ -264,10 +296,16 @@ export function buildPlate(input) {
   const spec = normaliseSpec(input);
   const d = resolve(spec);
 
-  const outline = buildOutline(spec, d.width, d.depth, d.chord);
-  if (outline.length < 3) throw new SpecError('Those dimensions leave no plate to build.');
+  let rings;
+  try {
+    rings = buildOutline(spec, d.width, d.depth, d.chord);
+  } catch (err) {
+    if (err instanceof GlyphError) throw new SpecError(err.message);
+    throw err;
+  }
+  if (rings.outer.length < 3) throw new SpecError('Those dimensions leave no plate to build.');
 
-  const studs = studGrid(outline, {
+  const studs = studGrid(rings, {
     nx: spec.width,
     ny: spec.depth,
     pitch: d.pitch,
@@ -303,32 +341,38 @@ export function buildPlate(input) {
 
   // --- top face -------------------------------------------------------------
 
-  const rings = studs.map((stud) => circlePoints(stud.x, stud.y, R, seg));
+  const studRings = studs.map((stud) => circlePoints(stud.x, stud.y, R, seg));
   topFace(push, {
-    outline, studs, rings, T, seg,
+    rings, studs, studRings, T, seg,
     nx: spec.width, ny: spec.depth, pitch: d.pitch,
   });
 
-  // --- bottom face: the plain outline, facing down --------------------------
+  // --- bottom face: the plate's own rings, facing down -----------------------
 
-  const bottomCoords = [];
-  for (const [x, y] of outline) bottomCoords.push(x, y);
-  emitFace(push, bottomCoords, earcut(bottomCoords, null, 2, true), 0, -1);
+  const bottom = ringCoords(rings.outer, rings.holes);
+  emitFace(push, bottom.coords, earcut(bottom.coords, bottom.holes, 2, true), 0, -1);
 
   // --- side wall ------------------------------------------------------------
+  //
+  // The same code walks the outer ring and every hole. That works because the
+  // holes run the opposite way round, so "the material is on the left" holds
+  // for all of them and the wall's normal comes out pointing away from the
+  // plate in both cases — outward at the edge, inward into the hole.
 
-  for (let i = 0; i < outline.length; i++) {
-    const [x0, y0] = outline[i];
-    const [x1, y1] = outline[(i + 1) % outline.length];
-    push(x0, y0, 0, x1, y1, 0, x1, y1, T);
-    push(x0, y0, 0, x1, y1, T, x0, y0, T);
+  for (const ring of [rings.outer, ...rings.holes]) {
+    for (let i = 0; i < ring.length; i++) {
+      const [x0, y0] = ring[i];
+      const [x1, y1] = ring[(i + 1) % ring.length];
+      push(x0, y0, 0, x1, y1, 0, x1, y1, T);
+      push(x0, y0, 0, x1, y1, T, x0, y0, T);
+    }
   }
 
   // --- studs ----------------------------------------------------------------
 
   const top = T + SH;
-  for (let s = 0; s < rings.length; s++) {
-    const ring = rings[s];
+  for (let s = 0; s < studRings.length; s++) {
+    const ring = studRings[s];
     const { x: cx, y: cy } = studs[s];
 
     // Outer wall. Its lower ring is literally the hole in the top face, so the
@@ -373,14 +417,28 @@ export function buildPlate(input) {
   return {
     spec,
     dims: d,
-    outline,
+    rings,
     studs,
     positions,
     triangles: positions.length / 9,
     volume: meshVolume(positions),
     size: { x: d.width, y: d.depth, z: d.height },
-    area: Math.abs(polygonArea(outline)),
+    area: ringsArea(rings),
   };
+}
+
+// Flatten a set of rings into the flat coordinate array and hole-start indices
+// the triangulator takes. `extra` rings are appended as further holes, which is
+// how the stud circles and the tiled interior's boundary get in.
+function ringCoords(outer, holes, extra = []) {
+  const coords = [];
+  for (const [x, y] of outer) coords.push(x, y);
+  const starts = [];
+  for (const ring of [...holes, ...extra]) {
+    starts.push(coords.length / 2);
+    for (const [x, y] of ring) coords.push(x, y);
+  }
+  return { coords, holes: starts.length ? starts : null };
 }
 
 // ---------------------------------------------------------------------------
@@ -403,18 +461,12 @@ export function buildPlate(input) {
 
 function topFace(push, o) {
   if (!tiledTopFace(push, o)) {
-    const coords = [];
-    for (const [x, y] of o.outline) coords.push(x, y);
-    const holes = [];
-    for (const ring of o.rings) {
-      holes.push(coords.length / 2);
-      for (const [x, y] of ring) coords.push(x, y);
-    }
-    emitFace(push, coords, earcut(coords, holes.length ? holes : null, 2, true), o.T, +1);
+    const flat = ringCoords(o.rings.outer, o.rings.holes, o.studRings);
+    emitFace(push, flat.coords, earcut(flat.coords, flat.holes, 2, true), o.T, +1);
   }
 }
 
-function tiledTopFace(push, { outline, studs, rings, T, seg, nx, ny, pitch }) {
+function tiledTopFace(push, { rings, studs, studRings, T, seg, nx, ny, pitch }) {
   const half = pitch / 2;
   // A cell is wholly inside when its centre is inside and no part of the
   // outline comes within the cell's own circumradius of that centre.
@@ -427,8 +479,8 @@ function tiledTopFace(push, { outline, studs, rings, T, seg, nx, ny, pitch }) {
     for (let i = 0; i < nx; i++) {
       const x = cx(i);
       const y = cy(j);
-      if (!pointInPolygon(outline, x, y)) continue;
-      if (distanceToOutline(outline, x, y) < reach) continue;
+      if (!inMaterial(rings, x, y)) continue;
+      if (distanceToEdge(rings, x, y) < reach) continue;
       inside.add(j * nx + i);
     }
   }
@@ -438,9 +490,11 @@ function tiledTopFace(push, { outline, studs, rings, T, seg, nx, ny, pitch }) {
   if (!loops) return false;
 
   // --- the band around the tiled interior ---
-  const coords = [];
-  for (const [x, y] of outline) coords.push(x, y);
-  const holes = [];
+  //
+  // The band is everything the tiling did not cover: the plate's own rings,
+  // with the tiled region and the leftover studs punched out of it.
+  const { coords, holes: ringHoles } = ringCoords(rings.outer, rings.holes);
+  const holes = ringHoles || [];
 
   const per = seg / 4;
   for (const loop of loops) {
@@ -456,19 +510,17 @@ function tiledTopFace(push, { outline, studs, rings, T, seg, nx, ny, pitch }) {
     }
   }
 
-  const border = [];
   for (let s = 0; s < studs.length; s++) {
     if (inside.has(studs[s].j * nx + studs[s].i)) continue;
-    border.push(s);
     holes.push(coords.length / 2);
-    for (const [x, y] of rings[s]) coords.push(x, y);
+    for (const [x, y] of studRings[s]) coords.push(x, y);
   }
 
   emitFace(push, coords, earcut(coords, holes, 2, true), T, +1);
 
   // --- the tiled interior ---
   const ringAt = new Map();
-  for (let s = 0; s < studs.length; s++) ringAt.set(studs[s].j * nx + studs[s].i, rings[s]);
+  for (let s = 0; s < studs.length; s++) ringAt.set(studs[s].j * nx + studs[s].i, studRings[s]);
 
   for (const cell of inside) {
     const i = cell % nx;

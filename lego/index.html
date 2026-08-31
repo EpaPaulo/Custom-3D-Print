@@ -34,6 +34,19 @@
       <h2>Forma</h2>
       <div class="shapes" id="shapes"></div>
 
+      <div class="field" id="f-char-field" hidden>
+        <label for="f-char">Carácter</label>
+        <input type="text" id="f-char" maxlength="1" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" inputmode="text" value="A">
+      </div>
+
+      <div class="field" id="f-font-field" hidden>
+        <label for="f-font">Tipo de letra</label>
+        <select id="f-font"></select>
+      </div>
+
+      <p class="note" id="char-note" hidden>Uma letra A–Z ou um algarismo 0–9.</p>
+
       <div class="field" id="f-corner-field" hidden>
         <label for="f-corner">Raio dos cantos <output id="o-corner"></output></label>
         <input type="range" id="f-corner" min="0" max="60" step="0.5" value="0">
@@ -78,13 +91,13 @@
     <section class="group">
       <h2>Dimensões</h2>
 
-      <div class="field">
+      <div class="field" id="width-field">
         <label for="f-width">Largura <output id="o-width"></output></label>
         <input type="range" id="f-width" min="1" max="96" step="1" value="28">
       </div>
 
       <div class="field">
-        <label for="f-depth">Profundidade <output id="o-depth"></output></label>
+        <label for="f-depth" id="depth-label">Profundidade <output id="o-depth"></output></label>
         <input type="range" id="f-depth" min="1" max="96" step="1" value="25">
       </div>
 
