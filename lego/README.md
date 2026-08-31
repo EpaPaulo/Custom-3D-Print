@@ -45,9 +45,24 @@ it is the one setting worth calibrating.
 
 ## Using it
 
-1. **Forma** — rectangle, circle or ellipse, regular polygon, star, cross, L or
-   heart. The outline is analytic, not snapped to the grid, so a round plate is
-   actually round rather than stepped.
+1. **Forma** — geometric: rectangle, circle or ellipse, regular polygon, star,
+   cross, L, heart. Figures: Santa, bunny, candy cane, pumpkin, ghost. The
+   outline is analytic, not snapped to the grid, so a round plate is actually
+   round rather than stepped.
+
+   Picking a shape also starts the two size sliders at the proportions it was
+   drawn in. Every outline is stretched to fill whatever width and depth you
+   then ask for — you buy a plate in studs, not in proportions — but a candy
+   cane stretched to a square reads as nothing at all, so it is worth starting
+   somewhere sensible.
+
+   Each figure is a **single closed outline with no holes**, which is a
+   constraint rather than a style: the plate is one solid, so the ghost has no
+   cut-out eyes and the pumpkin has no carved face. Whatever makes the figure
+   recognisable has to live in its silhouette. Adding one is a pen path in
+   `assets/js/shapes.js` and a line in the `SHAPES` list — the picker's icons
+   are drawn from the outlines themselves, so there is no second copy of the
+   drawing to keep in step.
 2. **Dimensões** — width and depth in studs. A stud is kept only where the whole
    stud fits inside the outline, so nothing ever hangs over the edge. Pick your
    printer under *Área de impressão* and the app says when a plate stops fitting.
@@ -76,6 +91,11 @@ nothing is left open, so a slicer takes the file at face value instead of having
 to union intersecting bodies first. `server/test/smoke.mjs` checks it, on every
 shape and every stud pattern, by the property that matters: every directed edge
 in the mesh has exactly one opposite.
+
+The figures exercise that harder than the geometric shapes do: a candy cane's
+hook and a bunny's ears are narrow enough that the interior tiling below falls
+back to triangulating the whole face, and the ghost's hem puts a concave notch
+between two runs of studs.
 
 Two things in `assets/js/plate.js` are worth knowing about before changing it.
 

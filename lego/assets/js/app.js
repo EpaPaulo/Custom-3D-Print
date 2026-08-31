@@ -4,6 +4,7 @@ import {
   buildPlate, normaliseSpec, resolve, estimate, SpecError,
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS,
 } from './plate.js';
+import { buildOutline } from './shapes.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
 
 const $ = (id) => document.getElementById(id);
@@ -40,18 +41,6 @@ const COLOURS = [
   { id: 'black', label: 'Preto', hex: 0x2b2b2b },
   { id: 'tan', label: 'Bege', hex: 0xe4cd9e },
 ];
-
-// One glyph per shape, drawn rather than named: the shape of a plate is the
-// one thing a word is worse at describing than a picture.
-const ICONS = {
-  rect: '<rect x="2" y="5" width="20" height="14" rx="2"/>',
-  ellipse: '<circle cx="12" cy="12" r="9"/>',
-  polygon: '<path d="M12 3 20 7.5 20 16.5 12 21 4 16.5 4 7.5Z"/>',
-  star: '<path d="M12 2.5 14.6 9.2 21.5 9.6 16.2 14.1 17.9 21 12 17.2 6.1 21 7.8 14.1 2.5 9.6 9.4 9.2Z"/>',
-  cross: '<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6Z"/>',
-  lshape: '<path d="M4 3h6v12h10v6H4Z"/>',
-  heart: '<path d="M12 21C5 16 2.5 12.4 2.5 9A5 5 0 0 1 12 6.6 5 5 0 0 1 21.5 9c0 3.4-2.5 7-9.5 12Z"/>',
-};
 
 // ---------------------------------------------------------------------------
 // State
@@ -103,6 +92,37 @@ function safeSpec() {
   }
 }
 
+// The glyph on each button is the shape's own outline, at the proportions it
+// is drawn in. Nothing here describes what a pumpkin looks like — so the button
+// cannot end up showing something the generator does not build.
+function shapeIcon(shape) {
+  const spec = normaliseSpec({ shape: shape.id, width: shape.size[0], depth: shape.size[1] });
+  const d = resolve(spec);
+  // Coarse on purpose: the glyph is 24 px across, and no detail finer than that
+  // survives being drawn at that size.
+  const outline = buildOutline(spec, d.width, d.depth, Math.max(d.width, d.depth) / 30);
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [x, y] of outline) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  // Fit the longer side into 22 of the 24 px, keeping the aspect — a candy cane
+  // squashed into a square would be exactly the confusion the icon is for.
+  const k = 22 / Math.max(maxX - minX, maxY - minY, 1e-6);
+  const ox = 12 - ((minX + maxX) / 2) * k;
+  const oy = 12 + ((minY + maxY) / 2) * k;
+
+  const path = outline
+    .map(([x, y], i) => `${i ? 'L' : 'M'}${(x * k + ox).toFixed(1)} ${(oy - y * k).toFixed(1)}`)
+    .join('');
+
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}Z"/></svg>`;
+}
+
 function buildShapePicker() {
   const host = $('shapes');
   host.innerHTML = '';
@@ -111,10 +131,13 @@ function buildShapePicker() {
     b.type = 'button';
     b.dataset.shape = s.id;
     b.title = s.label;
-    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[s.id] || ICONS.rect}</svg><span>${s.label}</span>`;
+    b.innerHTML = `${shapeIcon(s)}<span>${s.label}</span>`;
     b.addEventListener('click', () => {
       spec.shape = s.id;
-      syncShapeFields();
+      // Start at the proportions the shape was drawn in. Both sliders still do
+      // what they say; this only decides where they start.
+      if (s.size) [spec.width, spec.depth] = s.size;
+      writeControls();
       changed();
     });
     host.appendChild(b);
