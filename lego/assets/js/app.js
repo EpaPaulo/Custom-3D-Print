@@ -519,6 +519,12 @@ function restore() {
 // ---------------------------------------------------------------------------
 
 if (EMBED) document.body.classList.add('embed');
+
+// The hint names the gesture that actually works here. A phone has no wheel,
+// and telling someone to use one is worse than saying nothing.
+if (matchMedia('(pointer: coarse)').matches) {
+  $('hint').textContent = 'Arraste para rodar · dois dedos para ampliar';
+}
 if (SHOP) for (const id of ['btn-stl', 'btn-stl-2']) $(id).hidden = true;
 
 buildShapePicker();
