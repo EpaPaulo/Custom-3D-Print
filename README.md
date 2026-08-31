@@ -192,6 +192,14 @@ python3 -m http.server 8099
 
 Then open <http://localhost:8099/>.
 
+## Other apps in this repository
+
+`lego/` is a separate app: a generator for 3D-printable baseplates compatible
+with LEGO, where you pick a shape and a size in studs and it builds the STL. It
+has its own page, its own geometry and its own order backend, and shares nothing
+with this one but the vendored copy of three.js. See `lego/README.md`; once
+Pages is on it is served at `/lego/`.
+
 ## Publishing to GitHub Pages
 
 **Settings → Pages → Source: _Deploy from a branch_ → `main` → `/ (root)` → Save.**

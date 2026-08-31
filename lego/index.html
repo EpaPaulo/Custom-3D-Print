@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gerador de Placas — compatíveis LEGO</title>
+<meta name="description" content="Gere placas de base compatíveis com LEGO à medida: escolha a forma, as dimensões em pinos e descarregue o STL pronto a imprimir.">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "../vendor/OrbitControls.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Gerador de <span>Placas LEGO</span></h1>
+  <div class="topbar-actions">
+    <button id="btn-snapshot" class="btn btn-ghost" type="button">Guardar imagem</button>
+    <button id="btn-stl" class="btn btn-primary" type="button">Descarregar STL</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <aside class="panel" id="panel">
+
+    <section class="group">
+      <h2>Forma</h2>
+      <div class="shapes" id="shapes"></div>
+
+      <div class="field" id="f-corner-field" hidden>
+        <label for="f-corner">Raio dos cantos <output id="o-corner"></output></label>
+        <input type="range" id="f-corner" min="0" max="60" step="0.5" value="0">
+      </div>
+
+      <div class="field" id="f-sides-field" hidden>
+        <label for="f-sides">Número de lados <output id="o-sides"></output></label>
+        <input type="range" id="f-sides" min="3" max="16" step="1" value="6">
+      </div>
+
+      <div class="field" id="f-points-field" hidden>
+        <label for="f-points">Pontas <output id="o-points"></output></label>
+        <input type="range" id="f-points" min="3" max="16" step="1" value="5">
+      </div>
+
+      <div class="field" id="f-inner-field" hidden>
+        <label for="f-inner">Profundidade das pontas <output id="o-inner"></output></label>
+        <input type="range" id="f-inner" min="0.2" max="0.9" step="0.01" value="0.5">
+      </div>
+
+      <div class="field" id="f-rotation-field" hidden>
+        <label for="f-rotation">Rotação <output id="o-rotation"></output></label>
+        <input type="range" id="f-rotation" min="-180" max="180" step="1" value="0">
+      </div>
+
+      <div class="field" id="f-arm-field" hidden>
+        <label for="f-arm">Largura dos braços <output id="o-arm"></output></label>
+        <input type="range" id="f-arm" min="1" max="40" step="1" value="5">
+      </div>
+
+      <div class="field" id="f-armx-field" hidden>
+        <label for="f-armx">Largura da perna <output id="o-armx"></output></label>
+        <input type="range" id="f-armx" min="1" max="40" step="1" value="6">
+      </div>
+
+      <div class="field" id="f-army-field" hidden>
+        <label for="f-army">Altura do pé <output id="o-army"></output></label>
+        <input type="range" id="f-army" min="1" max="40" step="1" value="6">
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Dimensões</h2>
+
+      <div class="field">
+        <label for="f-width">Largura <output id="o-width"></output></label>
+        <input type="range" id="f-width" min="1" max="96" step="1" value="28">
+      </div>
+
+      <div class="field">
+        <label for="f-depth">Profundidade <output id="o-depth"></output></label>
+        <input type="range" id="f-depth" min="1" max="96" step="1" value="25">
+      </div>
+
+      <p class="note" id="fit-note"></p>
+
+      <div class="field" style="margin-top:12px">
+        <label for="f-bed">Área de impressão</label>
+        <select id="f-bed"></select>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Pinos</h2>
+
+      <div class="field">
+        <label for="f-system">Sistema</label>
+        <select id="f-system"></select>
+      </div>
+
+      <div class="field">
+        <label for="f-pattern">Distribuição</label>
+        <select id="f-pattern"></select>
+      </div>
+
+      <div class="field">
+        <label for="f-scale">Ajuste de encaixe <output id="o-scale"></output></label>
+        <input type="range" id="f-scale" min="0.99" max="1.03" step="0.001" value="1.01">
+      </div>
+      <p class="note">
+        Impresso à medida exata, um pino agarra a mais. +1 % é o valor do modelo
+        de referência e o ponto de partida certo para FDM.
+      </p>
+
+      <div class="field" style="margin-top:12px">
+        <label class="check"><input type="checkbox" id="f-hollow"> Pinos ocos</label>
+      </div>
+      <p class="note">Gastam menos filamento e a parede fina agarra melhor a peça de cima.</p>
+
+      <details class="advanced">
+        <summary>Medidas avançadas</summary>
+        <div>
+          <div class="field">
+            <label for="f-thickness">Espessura da placa <output id="o-thickness"></output></label>
+            <input type="range" id="f-thickness" min="0.6" max="6" step="0.1" value="1.3">
+          </div>
+          <div class="field">
+            <label for="f-studheight">Altura do pino <output id="o-studheight"></output></label>
+            <input type="range" id="f-studheight" min="0.4" max="6" step="0.05" value="1.8">
+          </div>
+          <div class="field">
+            <label for="f-studdia">Diâmetro do pino <output id="o-studdia"></output></label>
+            <input type="range" id="f-studdia" min="1.5" max="12" step="0.05" value="4.85">
+          </div>
+          <div class="field">
+            <label for="f-pitch">Passo da grelha <output id="o-pitch"></output></label>
+            <input type="range" id="f-pitch" min="3" max="20" step="0.01" value="8">
+          </div>
+          <div class="field">
+            <label for="f-clearance">Folga lateral <output id="o-clearance"></output></label>
+            <input type="range" id="f-clearance" min="0" max="1" step="0.01" value="0.2">
+          </div>
+          <p class="note">Valores nominais, antes do ajuste de encaixe.</p>
+        </div>
+      </details>
+    </section>
+
+    <section class="group">
+      <h2>Pré-visualização</h2>
+
+      <div class="field">
+        <label>Cor</label>
+        <div class="swatches" id="swatches"></div>
+      </div>
+
+      <div class="field">
+        <label for="f-quality">Qualidade do contorno</label>
+        <select id="f-quality"></select>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Resultado</h2>
+      <dl class="stats">
+        <div><dt>Dimensões</dt><dd id="s-dims">—</dd></div>
+        <div><dt>Pinos</dt><dd id="s-studs">—</dd></div>
+        <div><dt>Triângulos</dt><dd id="s-tris">—</dd></div>
+        <div><dt>Ficheiro</dt><dd id="s-size">—</dd></div>
+        <div><dt>Filamento</dt><dd id="s-filament">—</dd></div>
+      </dl>
+      <p class="warn" id="warn" hidden></p>
+      <button id="btn-stl-2" class="btn btn-primary btn-block" type="button">Descarregar STL</button>
+      <button id="btn-reset" class="btn btn-ghost btn-block" type="button">Repor tudo</button>
+      <p class="note">
+        Imprima com a face dos pinos para cima, sem suportes. Uma primeira
+        camada bem calibrada é o que decide se a placa encaixa.
+      </p>
+    </section>
+
+  </aside>
+
+  <div class="viewport" id="viewport">
+    <canvas id="canvas"></canvas>
+    <div class="viewport-hint">Arraste para rodar · roda do rato para ampliar</div>
+    <div class="viewport-badge" id="busy" hidden>a recalcular…</div>
+    <div class="viewport-tools">
+      <button type="button" class="btn btn-sm" id="btn-view-top">Topo</button>
+      <button type="button" class="btn btn-sm" id="btn-view-iso">Perspetiva</button>
+      <button type="button" class="btn btn-sm" id="btn-view-front">Frente</button>
+      <button type="button" class="btn btn-sm" id="btn-wire">Malha</button>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

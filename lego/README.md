@@ -1,0 +1,184 @@
+# Gerador de Placas — compatíveis LEGO
+
+A browser app for generating **3D-printable baseplates compatible with LEGO**.
+Pick a shape, set the size in studs, see it in a live 3D preview, then download
+a print-ready STL.
+
+It is a separate app from the Bimby cover personaliser in this repository: its
+own page, its own geometry, its own backend. The only thing the two share is the
+vendored copy of three.js at `../vendor/`.
+
+```
+lego/
+├── index.html          the configurator
+├── assets/js/          geometry and UI, no build step
+├── server/             order backend (Express)
+└── storefront/         Shopify bridge and a demo product page
+```
+
+The front end runs entirely client-side — no server, no build step, nothing
+uploaded. Drop it on GitHub Pages and it works. The backend is only needed to
+sell plates.
+
+## Where the dimensions come from
+
+The generator was derived from a supplied 28 × 25 baseplate mesh. Dividing its
+measurements by its print scale gives round numbers, which are the ones the app
+uses as nominal:
+
+| | nominal | the reference plate, at +1 % |
+|---|---|---|
+| stud pitch | 8.00 mm | 8.08 mm |
+| stud diameter | 4.85 mm | 4.90 mm |
+| stud height | 1.80 mm | 1.818 mm |
+| plate thickness | 1.30 mm | 1.313 mm |
+| side clearance | 0.20 mm | 0.202 mm |
+
+A run of *n* studs measures `n × pitch − clearance`, so 28 × 25 comes to
+226.038 × 201.798 mm and the whole plate stands 3.131 mm tall — which is the
+supplied mesh to the micron. Setting the app to 28 × 25 at +1 % reproduces it.
+
+**The +1 % matters.** Printed at exactly nominal, FDM studs come out slightly
+oversized and grip too hard; +1 % is what the reference plate is printed at and
+is the right place to start. Adjust it if your first plate is tight or loose —
+it is the one setting worth calibrating.
+
+## Using it
+
+1. **Forma** — rectangle, circle or ellipse, regular polygon, star, cross, L or
+   heart. The outline is analytic, not snapped to the grid, so a round plate is
+   actually round rather than stepped.
+2. **Dimensões** — width and depth in studs. A stud is kept only where the whole
+   stud fits inside the outline, so nothing ever hangs over the edge. Pick your
+   printer under *Área de impressão* and the app says when a plate stops fitting.
+3. **Pinos** — LEGO or Duplo spacing, the fit adjustment, all-studs / border /
+   chequerboard / none, and hollow studs. Every individual dimension is
+   adjustable under *Medidas avançadas* if your printer wants different numbers.
+4. **Descarregar STL** — millimetres, ready for the slicer.
+
+Your settings are kept in `localStorage`, so a refresh won't lose them.
+
+### Printing
+
+Studs up, no supports, no raft. The first layer is what decides whether the
+plate fits: over-squished studs are the usual cause of a plate that grips too
+hard. 0.2 mm layers put nine of them in the 1.8 mm stud.
+
+Hollow studs save filament and give the brick above something to flex against,
+which many people prefer on printed plates. They are off by default because
+solid studs are what the reference plate has.
+
+## How the mesh is built
+
+The plate comes out **closed**: a bottom face, a side wall, a top face with one
+circular hole per stud, and a cylinder sewn into each hole. Nothing overlaps and
+nothing is left open, so a slicer takes the file at face value instead of having
+to union intersecting bodies first. `server/test/smoke.mjs` checks it, on every
+shape and every stud pattern, by the property that matters: every directed edge
+in the mesh has exactly one opposite.
+
+Two things in `assets/js/plate.js` are worth knowing about before changing it.
+
+**The top face is built in two halves.** Handing the whole thing to a
+triangulator as one outline with a hole per stud is correct but quadratic in the
+hole count, and a bed-sized plate has a couple of thousand studs — a 52 × 52
+plate took 24 seconds that way. So every grid cell lying wholly inside the
+outline is sewn directly, cell by cell, and only the border band left over goes
+to the triangulator, carrying the few studs whose cells hang over the edge. Same
+mesh, 124 ms. Plates whose interior is not a simple region fall back to
+triangulating the whole face.
+
+**Flat triangles are kept, not dropped.** Where the tiled interior meets the
+border band, the band's boundary carries vertices that sit mid-way along an
+otherwise straight run. The triangulator is told to preserve them, and the only
+triangle that can consume such a vertex is a flat one. Those triangles are what
+stitch the seam: drop them and each of those vertices becomes a T-junction,
+which is the classic way a mesh that looks closed still slices with a hairline
+crack in it. They carry no area, and every slicer discards them on load.
+
+## The order backend
+
+`server/` is an Express app for selling plates: it records orders from a Shopify
+webhook, keeps each customer's design, and builds the print file on demand.
+
+It **imports the same geometry module the browser previews with**
+(`../assets/js/plate.js`). That is the point of it: a plate that previewed at
+226 mm and printed at 224 would be a refund, and the only way to be sure the two
+agree is for there to be one of them. A customer sends a *spec* — a shape and a
+few dozen millimetres — never a mesh, so nobody can hand this server arbitrary
+triangles to put on a printer.
+
+```
+cd lego/server
+npm install
+cp .env.example .env      # then fill in ADMIN_TOKEN and SHOPIFY_WEBHOOK_SECRET
+npm start                 # :3100
+npm test                  # 21 checks, no mocks
+```
+
+It refuses to start without both secrets — an unsigned webhook is not an order,
+and an unguarded print file is the product given away.
+
+### API
+
+| | |
+|---|---|
+| `GET /api/health` | |
+| `GET /api/catalogue` | shapes, systems, patterns, limits — so a storefront need not hardcode them |
+| `POST /api/plates` | a spec in, dimensions / stud count / file size / price out. Keeps nothing |
+| `POST /api/plates/stl` | the print file. Admin-only unless `ALLOW_PUBLIC_STL=1` |
+| `POST /api/designs` | keep a design, get an id back |
+| `GET /api/designs/:id` | what was ordered. Never the STL |
+| `GET /api/designs/:id/preview.png` | |
+| `POST /webhooks/shopify/orders-create` | HMAC-verified |
+| `GET /admin` | the review console |
+| `GET /api/admin/orders` | `?status=new\|approved\|printed\|rejected` |
+| `POST /api/admin/orders/:id/status` | |
+| `GET /api/admin/designs/:id/plate.stl` | the file that goes on the printer |
+
+Everything under `/api/admin` needs `Authorization: Bearer $ADMIN_TOKEN`.
+`POST /api/designs` is additionally limited to the origins in
+`ALLOWED_ORIGINS`.
+
+Out-of-range numbers in a spec are **clamped**, not refused: a slider dragged
+past a limit and a hand-written value that is merely optimistic mean the same
+thing. Only an unknown *name* — a shape or system this build cannot make — is an
+error, because there is nothing sensible to clamp it to.
+
+### Pricing
+
+A quote is `PRICE_BASE + grams × PRICE_PER_GRAM + hours × PRICE_PER_HOUR`. The
+hours are an estimate from the material and the stud count, not a slicer result
+— they move the right way as a plate grows, which is all a quote needs to do.
+Set the three numbers to your own.
+
+### Deploying the two apart
+
+The backend reads `../../assets/js/plate.js` and `../../assets/js/stl.js`
+relative to `server/src/`. If you deploy `server/` on its own, take `assets/js/`
+with it and keep the layout — those two files are the contract between the
+preview and the print.
+
+## Selling it
+
+`storefront/` has the Shopify side:
+
+- `configurator-bridge.js` — posts the design to the backend, then puts only the
+  returned id on the cart line as `_design_id`. The design never travels through
+  the cart: line item properties are small, customer-visible and awkward to
+  validate.
+- `demo.html` — a product page that embeds the configurator, quotes it live off
+  the backend and saves a design. It is a demonstration, so the `/cart/add.js`
+  step is simulated; the design really is stored and shows up in `/admin`.
+
+The configurator itself takes two query flags:
+
+- `?embed=1` — drop the page's own header, for a host page that has one.
+- `?shop=1` — selling context: no STL download, because in a shop the file is
+  the product.
+
+A host page talks to it either directly through `window.LegoPlate.getDesign()`
+or, across an iframe, by posting `{ type: 'plate:getDesign', requestId }` and
+listening for `plate:design`. Every rebuild also broadcasts `plate:changed` with
+the size, stud count and weight, so a page can keep a price beside the preview
+without asking.
