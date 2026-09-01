@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
-  buildPlate, normaliseSpec, resolve, estimate, SpecError,
+  buildPlate, normaliseSpec, resolve, SpecError,
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from './plate.js';
 import { buildOutline } from './shapes.js';
+import { quotePrint, PROFILES, RATES, DEFAULT_PROFILE } from './slice.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
 
 const $ = (id) => document.getElementById(id);
@@ -47,8 +48,10 @@ const COLOURS = [
 // ---------------------------------------------------------------------------
 
 let spec = { ...DEFAULTS };
-let view = { colour: 'red', bed: 'none', wire: false };
+let view = { colour: 'red', bed: 'none', wire: false, profile: DEFAULT_PROFILE };
+let rates = { ...RATES };
 let current = null;   // the last successful build
+let quote = null;     // the last slice of it
 
 restore();
 
@@ -179,6 +182,7 @@ function buildSelects() {
   fill($('f-quality'), Object.entries(QUALITIES).map(([id, q]) => [id, q.label]));
   fill($('f-bed'), BEDS.map((b) => [b.id, b.label]));
   fill($('f-font'), FONTS.map((f) => [f.id, f.label]));
+  fill($('f-profile'), Object.entries(PROFILES).map(([id, p]) => [id, p.label]));
 
   const host = $('swatches');
   for (const c of COLOURS) {
@@ -248,6 +252,10 @@ function writeControls() {
   $('f-bed').value = view.bed;
   $('f-char').value = spec.char;
   $('f-font').value = spec.font;
+  $('f-profile').value = view.profile;
+  $('f-rate-base').value = rates.base;
+  $('f-rate-gram').value = rates.perGram;
+  $('f-rate-hour').value = rates.perHour;
 
   syncRanges();
 
@@ -326,6 +334,22 @@ function wireControls() {
   });
   $('f-bed').addEventListener('change', () => { view.bed = $('f-bed').value; stats(); save(); });
 
+  $('f-profile').addEventListener('change', () => {
+    view.profile = $('f-profile').value;
+    save();
+    requote();
+  });
+
+  for (const [id, key] of [['f-rate-base', 'base'], ['f-rate-gram', 'perGram'], ['f-rate-hour', 'perHour']]) {
+    $(id).addEventListener('input', () => {
+      const value = Number($(id).value);
+      rates[key] = Number.isFinite(value) && value >= 0 ? value : RATES[key];
+      save();
+      // Only the arithmetic changes, so there is nothing to re-slice.
+      showQuote();
+    });
+  }
+
   $('btn-reset').addEventListener('click', () => {
     spec = { ...DEFAULTS };
     writeControls();
@@ -371,6 +395,7 @@ function rebuild() {
   $('busy').hidden = true;
   paint();
   stats();
+  requote();
   announce();
 }
 
@@ -398,16 +423,50 @@ function warn(message) {
   el.textContent = message || '';
 }
 
+// Slicing costs more than rebuilding the mesh does, and nobody needs a price
+// on every pixel a slider travels — so it trails the preview on its own timer
+// and says so while it is behind.
+let quotePending = 0;
+
+function requote() {
+  if (!current) return;
+  quote = null;
+  $('q-busy').hidden = false;
+  clearTimeout(quotePending);
+  quotePending = setTimeout(() => {
+    if (!current) return;
+    quote = quotePrint(current.positions, { profile: view.profile, rates });
+    $('q-busy').hidden = true;
+    showQuote();
+    // The host page's price waits on the slice, not on the mesh.
+    announce();
+  }, 260);
+}
+
+function showQuote() {
+  if (!quote) {
+    for (const id of ['q-filament', 'q-time', 'q-layers', 'q-total']) $(id).textContent = '—';
+    return;
+  }
+  // Re-price without re-slicing: the rates are arithmetic on top of the slice.
+  const total = rates.base + quote.grams * rates.perGram + quote.hours * rates.perHour;
+  const hours = Math.floor(quote.hours);
+  const minutes = Math.round((quote.hours - hours) * 60);
+
+  $('q-filament').textContent = `${quote.grams.toFixed(0)} g · ${quote.metres.toFixed(1)} m`;
+  $('q-time').textContent = hours ? `${hours} h ${minutes} min` : `${minutes} min`;
+  $('q-layers').textContent = `${quote.layers} · ${quote.fill}% maciço`;
+  $('q-total').textContent = `${total.toFixed(2)} ${rates.currency}`;
+}
+
 function stats() {
   if (!current) return;
-  const { size, triangles, studs, volume } = current;
-  const f = estimate(volume);
+  const { size, triangles, studs } = current;
 
   $('s-dims').textContent = `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(2)} mm`;
   $('s-studs').textContent = `${studs.length}`;
   $('s-tris').textContent = triangles.toLocaleString('pt-PT');
   $('s-size').textContent = `${((84 + triangles * 50) / 1048576).toFixed(1)} MB`;
-  $('s-filament').textContent = `${f.grams.toFixed(0)} g · ${f.metres.toFixed(1)} m`;
 
   const bed = BEDS.find((b) => b.id === view.bed);
   const overX = size.x > bed.x;
@@ -595,7 +654,7 @@ function snapshot() {
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ spec, view }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ spec, view, rates }));
   } catch {
     // A full or disabled store is not worth interrupting anyone over.
   }
@@ -609,6 +668,8 @@ function restore() {
     // spec is from an older build as often as not.
     spec = normaliseSpec(saved.spec || {});
     if (saved.view) view = { ...view, ...saved.view };
+    if (!PROFILES[view.profile]) view.profile = DEFAULT_PROFILE;
+    if (saved.rates) rates = { ...rates, ...saved.rates };
   } catch {
     spec = { ...DEFAULTS };
   }
@@ -654,6 +715,7 @@ window.LegoPlate = {
       spec: safeSpec(),
       size: current.size,
       studs: current.studs.length,
+      profile: view.profile,
       previewPng: canvas.toDataURL('image/png'),
     };
   },
@@ -694,7 +756,10 @@ function announce() {
     depth: spec.depth,
     size: current.size,
     studs: current.studs.length,
-    grams: Math.round(estimate(current.volume).grams),
+    // The weight comes from the slice, so a host page showing it beside the
+    // preview shows the same number the backend would quote.
+    grams: quote ? Math.round(quote.grams) : null,
+    hours: quote ? quote.hours : null,
   }, '*');
 }
 

@@ -6,6 +6,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
 const num = (v, fallback) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Number(v) : fallback);
 
+// Drop the keys nothing was set for, so they fall through to the profile's own
+// value rather than overriding it with a null.
+const defined = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
+
 export const config = {
   port: num(process.env.PORT, 3100),
 
@@ -27,12 +31,33 @@ export const config = {
   maxBodyBytes: 256 * 1024,
   maxPreviewBytes: 2 * 1024 * 1024,
 
-  // What a plate costs to have printed.
+  // What a plate costs to have printed. Material and machine time come from
+  // slicing the actual mesh, so these are rates rather than guesses.
   price: {
     base: num(process.env.PRICE_BASE, 4.5),
     perGram: num(process.env.PRICE_PER_GRAM, 0.06),
     perHour: num(process.env.PRICE_PER_HOUR, 1.2),
     currency: process.env.CURRENCY || 'EUR',
+  },
+
+  // How this shop prints. A preset, plus the handful of settings a shop
+  // actually changes; anything left unset keeps the preset's value. These
+  // decide the quote, so they should match the profile the shop really uses.
+  print: {
+    profile: process.env.PRINT_PROFILE || 'normal',
+    overrides: defined({
+      layerHeight: num(process.env.LAYER_HEIGHT, null),
+      walls: num(process.env.WALLS, null),
+      topLayers: num(process.env.TOP_LAYERS, null),
+      bottomLayers: num(process.env.BOTTOM_LAYERS, null),
+      infill: num(process.env.INFILL, null),
+    }),
+    machine: defined({
+      lineWidth: num(process.env.LINE_WIDTH, null),
+      filamentDiameter: num(process.env.FILAMENT_DIAMETER, null),
+      density: num(process.env.FILAMENT_DENSITY, null),
+      speedFactor: num(process.env.SPEED_FACTOR, null),
+    }),
   },
 
   // Whether anyone may ask this server to build a plate STL. Off by default:

@@ -20,6 +20,7 @@ const { createApp } = await import('../src/server.js');
 const store = await import('../src/store.js');
 const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
+const { slicePrint, priceOf, PROFILES } = await import('../../assets/js/slice.js');
 
 await store.init();
 
@@ -226,6 +227,63 @@ await check('out-of-range numbers are clamped, unknown names are refused', () =>
   assert.throws(() => normaliseSpec({ width: 96, depth: 96 }), SpecError);
 });
 
+// --- slicing ---------------------------------------------------------------
+
+await check('the slicer agrees with the mesh about how much solid there is', () => {
+  // The sliced cross-sections are a raster of the same geometry, so the volume
+  // they add up to has to match the mesh's own. This is what says the layer
+  // rasterisation is right; everything downstream of it is arithmetic.
+  for (const spec of [{}, { shape: 'ellipse', width: 14, depth: 14 }, { shape: 'text', char: 'B', depth: 16 }]) {
+    const plate = buildPlate(spec);
+    const print = slicePrint(plate.positions);
+    const off = Math.abs(print.solidMm3 - plate.volume) / plate.volume;
+    assert.ok(off < 0.06, `sliced solid is ${(off * 100).toFixed(1)}% off the mesh volume`);
+  }
+});
+
+await check('a print never takes more material than the same thing solid', () => {
+  for (const profile of Object.keys(PROFILES)) {
+    for (const spec of [{}, { width: 20, depth: 20, thickness: 6 }, { system: 'duplo', width: 6, depth: 6 }]) {
+      const print = slicePrint(buildPlate(spec).positions, { profile });
+      assert.ok(print.volumeMm3 <= print.solidMm3 * 1.001,
+        `${profile} extrudes more than solid: ${print.volumeMm3} > ${print.solidMm3}`);
+      assert.ok(print.grams > 0);
+    }
+  }
+});
+
+await check('a thick plate prints far lighter than its volume, a thin one does not', () => {
+  // This is the whole reason for slicing. A thin baseplate is nearly all skin
+  // and comes out near its solid weight; a thick one is mostly air, and pricing
+  // it by volume would overcharge by a factor of two or more.
+  const thin = slicePrint(buildPlate({ width: 20, depth: 20, thickness: 1.3 }).positions);
+  const thick = slicePrint(buildPlate({ width: 20, depth: 20, thickness: 6 }).positions);
+
+  const fillOf = (p) => p.volumeMm3 / p.solidMm3;
+  assert.ok(fillOf(thin) > 0.75, `thin plate only ${(fillOf(thin) * 100).toFixed(0)}% filled`);
+  assert.ok(fillOf(thick) < 0.55, `thick plate ${(fillOf(thick) * 100).toFixed(0)}% filled`);
+  // And the thick one weighs nowhere near its volume ratio would suggest.
+  assert.ok(thick.grams < thin.grams * 2.5, 'thick plate scaled like solid material');
+});
+
+await check('the settings move the estimate the way they should', () => {
+  const positions = buildPlate({ width: 16, depth: 16, thickness: 5 }).positions;
+  const at = (overrides) => slicePrint(positions, { overrides });
+
+  assert.ok(at({ infill: 0.5 }).grams > at({ infill: 0.1 }).grams, 'infill did not add material');
+  assert.ok(at({ walls: 5 }).grams > at({ walls: 1 }).grams, 'walls did not add material');
+  assert.ok(at({ layerHeight: 0.12 }).hours > at({ layerHeight: 0.28 }).hours, 'thin layers were not slower');
+  assert.ok(at({ topLayers: 8 }).grams > at({ topLayers: 1 }).grams, 'skin did not add material');
+});
+
+await check('a bigger plate costs more, and the base fee is always in there', () => {
+  const small = priceOf(slicePrint(buildPlate({ width: 8, depth: 8 }).positions));
+  const large = priceOf(slicePrint(buildPlate({ width: 24, depth: 24 }).positions));
+  assert.ok(large.total > small.total * 2, 'price barely moved with size');
+  assert.ok(small.total > small.base, 'the base fee went missing');
+  assert.equal(small.total, Math.round((small.base + small.material + small.machine) * 100) / 100);
+});
+
 // --- API -------------------------------------------------------------------
 
 await check('GET /api/health', async () => {
@@ -268,13 +326,18 @@ await check('POST /api/plates refuses a character it has no glyph for', async ()
   assert.match(body.error, /A-Z or 0-9/);
 });
 
-await check('POST /api/plates quotes the reference plate', async () => {
+await check('POST /api/plates quotes the reference plate from a real slice', async () => {
   const { status, body } = await post('/api/plates', REFERENCE);
   assert.equal(status, 200);
   assert.equal(body.studs, 700);
   assert.equal(body.size.x, 226.038);
   assert.ok(body.quote.total > 0, 'no price');
-  assert.ok(body.quote.grams > 50, `${body.quote.grams} g looks wrong`);
+  assert.ok(body.quote.grams > 50 && body.quote.grams < 110, `${body.quote.grams} g looks wrong`);
+  assert.ok(body.quote.hours > 1, `${body.quote.hours} h looks wrong`);
+  assert.ok(body.quote.layers > 5, 'no layer count');
+  assert.ok(body.quote.fill > 0 && body.quote.fill <= 100, `fill ${body.quote.fill}%`);
+  // Priced from the print, not from the solid: the mesh volume is heavier.
+  assert.ok(body.quote.grams < (body.volumeMm3 / 1000) * 1.24, 'quoted the solid weight');
 });
 
 await check('POST /api/plates refuses a shape it cannot build', async () => {

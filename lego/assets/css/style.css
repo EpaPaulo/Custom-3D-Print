@@ -118,6 +118,7 @@ body {
 }
 
 .group-head h2 { margin: 0; }
+.group-head .who { color: var(--accent); font-size: 12px; }
 
 /* ---------- fields ---------- */
 

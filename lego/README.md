@@ -130,6 +130,37 @@ Regenerate with `python3 lego/tools/extract-glyphs.py > lego/assets/js/glyphs.js
 which needs the .ttf files present. See `assets/fonts/LICENCE.md` for the notice
 that comes with them.
 
+## The slicer
+
+`assets/js/slice.js` is a slicer — enough of one to price a print, which is a
+smaller job than making one. It works on the triangles, not on the plate's
+parameters, so it keeps working when the geometry changes.
+
+For each layer it cuts the mesh at that height, fills the cross-section onto a
+grid one extrusion wide per cell, and then decides what each cell of material
+is:
+
+- **perimeter**, if it is within the wall count of the edge — found by eroding
+  the filled region a cell at a time, which is exactly what laying a perimeter
+  down does;
+- **solid skin**, if there is air within the top or bottom layer count above or
+  below it, which is what makes the top of a plate solid and its middle hollow;
+- **sparse infill** otherwise, counted at the infill fraction.
+
+Extruded volume follows from that directly, weight from the filament's density,
+and time from the path length each feature implies at the speed it is printed.
+
+What it does **not** do is plan toolpaths, so two things are estimated rather
+than measured. Travel is taken from how many separate islands a layer has —
+which matters more than it sounds, because a baseplate's top layers are hundreds
+of little circles and the head spends real time hopping between them. And
+nothing prints at its nominal speed, so `SPEED_FACTOR` scales the whole thing;
+it is the first number to adjust if quotes come out short.
+
+The check that it is right is in the tests: the volume its layers add up to has
+to match the mesh's own volume, within a few percent. Everything downstream of
+that is arithmetic.
+
 ## How the mesh is built
 
 The plate comes out **closed**: a bottom face, a side wall, a top face with one
@@ -226,10 +257,21 @@ error, because there is nothing sensible to clamp it to.
 
 ### Pricing
 
-A quote is `PRICE_BASE + grams × PRICE_PER_GRAM + hours × PRICE_PER_HOUR`. The
-hours are an estimate from the material and the stud count, not a slicer result
-— they move the right way as a plate grows, which is all a quote needs to do.
-Set the three numbers to your own.
+A quote is `PRICE_BASE + grams × PRICE_PER_GRAM + hours × PRICE_PER_HOUR`, and
+the grams and the hours come from **slicing the plate**, not from its volume.
+
+That distinction is the point. A print is a few perimeters, a solid skin top and
+bottom, and mostly air in between, and how much air depends on the shape in a
+way no formula predicts:
+
+| | solid volume | actually printed |
+|---|---|---|
+| 20 × 20 baseplate, 1.3 mm | 59 g | 49 g — 85 % |
+| 20 × 20 plate, 6 mm thick | 212 g | 78 g — 37 % |
+
+Same footprint, and pricing the second by volume would overcharge by nearly
+three times. Set `PRINT_PROFILE` and the overrides beside it to the way your
+shop really prints; the quote is only as good as that matches.
 
 ### Deploying the two apart
 

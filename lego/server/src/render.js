@@ -11,9 +11,10 @@
 // be sure the two agree is for there to be one of them.
 
 import {
-  buildPlate, normaliseSpec, resolve, estimate, SpecError,
+  buildPlate, normaliseSpec, resolve, SpecError,
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from '../../assets/js/plate.js';
+import { slicePrint, priceOf, PROFILES } from '../../assets/js/slice.js';
 import { trianglesToSTL } from '../../assets/js/stl.js';
 import { config } from './config.js';
 
@@ -32,6 +33,7 @@ export function catalogue() {
     // Names only. The glyph outlines behind them are tens of kilobytes and are
     // of no use to a storefront, which sends a character and gets a plate.
     fonts: FONTS.map((f) => ({ id: f.id, label: f.label })),
+    profiles: Object.entries(PROFILES).map(([id, p]) => ({ id, label: p.label })),
     characters: CHARACTERS,
     defaults: DEFAULTS,
     limits: LIMITS,
@@ -40,35 +42,24 @@ export function catalogue() {
 }
 
 /**
- * How long a plate takes to print, roughly.
+ * What a plate costs, from slicing it.
  *
- * Rough is the honest word for it: a real answer comes from a slicer, with the
- * layer height, infill and speed the shop actually uses. This is a quote, built
- * from the two things that dominate a plate — the material to lay down, and the
- * stud count, because each stud is a small perimeter the head has to slow into
- * and retract out of. It moves the right way when the plate grows, which is all
- * a quote needs to do.
+ * The shape of a plate is not something a formula can price. A thin baseplate
+ * is nearly all skin and prints at close to its solid weight; a 6 mm one is
+ * mostly air and comes out at a third of it. Pricing either from the mesh's
+ * volume overcharges someone — which is the whole reason this goes through a
+ * slicer instead.
  *
- * The rate is the effective one for a 0.4 mm nozzle at 0.2 mm layers, well
- * under what a hotend can push, because acceleration is what actually limits a
- * surface covered in 5 mm circles.
+ * The profile is the shop's, out of the environment, so the quote is for the
+ * way this shop actually prints rather than for a generic one.
  */
-export function printHours(plate) {
-  const minutes = plate.volume / 240 + plate.studs.length * 0.12;
-  return minutes / 60;
-}
-
 export function quote(plate) {
-  const f = estimate(plate.volume);
-  const hours = printHours(plate);
-  const total = config.price.base + f.grams * config.price.perGram + hours * config.price.perHour;
-  return {
-    currency: config.price.currency,
-    grams: round(f.grams, 1),
-    metres: round(f.metres, 2),
-    hours: round(hours, 2),
-    total: round(total, 2),
-  };
+  const print = slicePrint(plate.positions, {
+    profile: config.print.profile,
+    overrides: config.print.overrides,
+    machine: config.print.machine,
+  });
+  return priceOf(print, config.price);
 }
 
 const round = (v, places) => Math.round(v * 10 ** places) / 10 ** places;
@@ -96,6 +87,8 @@ export function describe(input) {
     studs: plate.studs.length,
     triangles: plate.triangles,
     stlBytes: 84 + plate.triangles * 50,
+    // The solid volume of the mesh. Kept because it is a property of the
+    // geometry, unlike the quote, which is a property of how it gets printed.
     volumeMm3: round(plate.volume, 1),
     quote: quote(plate),
   };

@@ -185,7 +185,6 @@
         <div><dt>Pinos</dt><dd id="s-studs">—</dd></div>
         <div><dt>Triângulos</dt><dd id="s-tris">—</dd></div>
         <div><dt>Ficheiro</dt><dd id="s-size">—</dd></div>
-        <div><dt>Filamento</dt><dd id="s-filament">—</dd></div>
       </dl>
       <p class="warn" id="warn" hidden></p>
       <button id="btn-stl-2" class="btn btn-primary btn-block" type="button">Descarregar STL</button>
@@ -194,6 +193,54 @@
         Imprima com a face dos pinos para cima, sem suportes. Uma primeira
         camada bem calibrada é o que decide se a placa encaixa.
       </p>
+    </section>
+
+    <section class="group" id="quote-group">
+      <div class="group-head">
+        <h2>Orçamento</h2>
+        <span class="who" id="q-busy" hidden>a calcular…</span>
+      </div>
+
+      <div class="field">
+        <label for="f-profile">Perfil de impressão</label>
+        <select id="f-profile"></select>
+      </div>
+
+      <dl class="stats">
+        <div><dt>Filamento</dt><dd id="q-filament">—</dd></div>
+        <div><dt>Tempo de impressão</dt><dd id="q-time">—</dd></div>
+        <div><dt>Camadas</dt><dd id="q-layers">—</dd></div>
+        <div><dt>Preço</dt><dd id="q-total">—</dd></div>
+      </dl>
+
+      <p class="note" id="q-note">
+        Fatiado a sério: a peça é cortada camada a camada para contar o que sai
+        mesmo do bico, e não o volume da malha.
+      </p>
+
+      <details class="advanced">
+        <summary>Tarifas</summary>
+        <div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-rate-base">Taxa base</label>
+              <input type="number" id="f-rate-base" min="0" step="0.5">
+            </div>
+            <div class="field">
+              <label for="f-rate-gram">Por grama</label>
+              <input type="number" id="f-rate-gram" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-rate-hour">Por hora de máquina</label>
+            <input type="number" id="f-rate-hour" min="0" step="0.1">
+          </div>
+          <p class="note">
+            Só neste navegador. Numa encomenda quem manda são as tarifas do
+            servidor.
+          </p>
+        </div>
+      </details>
     </section>
 
   </aside>

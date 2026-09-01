@@ -654,12 +654,3 @@ export function meshVolume(positions) {
   }
   return v / 6;
 }
-
-/** Filament a plate will take, at the usual PLA density. */
-export function estimate(volumeMm3, density = 1.24) {
-  const cm3 = volumeMm3 / 1000;
-  const grams = cm3 * density;
-  // 1.75 mm filament: 2.405 mm² of cross-section per millimetre of length.
-  const metres = (volumeMm3 / (Math.PI * 0.875 * 0.875)) / 1000;
-  return { cm3, grams, metres };
-}
