@@ -21,7 +21,7 @@ const store = await import('../src/store.js');
 const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
 const { slicePrint, PROFILES } = await import('../../assets/js/slice.js');
-const { priceOf, shippingFor, parcelFor, shippingOptions, ZONES } = await import('../../assets/js/price.js');
+const { priceOf, priceBasket, shippingFor, parcelFor, packParcel, shippingOptions, ZONES } = await import('../../assets/js/price.js');
 
 await store.init();
 
@@ -346,6 +346,50 @@ await check('free shipping applies above a threshold, and a flat rate overrides 
   assert.equal(flat.total, Math.round((flat.goods + 4.25) * 100) / 100);
 });
 
+await check('several plates share one box, and the box is packed not stacked', () => {
+  const big = slicePrint(buildPlate({}).positions);
+  const tile = slicePrint(buildPlate({ width: 8, depth: 8 }).positions);
+
+  // Three tiles fit beside nothing, but they fit beside each other: the box is
+  // the big plate's footprint, two layers deep rather than four.
+  const parcel = packParcel([
+    { size: big.size, grams: big.grams },
+    ...Array.from({ length: 3 }, () => ({ size: tile.size, grams: tile.grams })),
+  ]);
+  assert.equal(parcel.items, 4);
+  assert.equal(parcel.layers, 2, `packed into ${parcel.layers} layers`);
+  assert.ok(parcel.lengthMm <= big.size.x + 30, 'the box grew beyond the largest plate');
+
+  // And identical plates stack into as few layers as their areas allow.
+  const stacked = packParcel(Array.from({ length: 4 }, () => ({ size: big.size, grams: big.grams })));
+  assert.equal(stacked.layers, 4, 'four full-size plates cannot share a layer');
+  assert.ok(stacked.heightMm > parcel.heightMm);
+});
+
+await check('a basket costs less to ship than the same plates quoted one by one', () => {
+  const big = slicePrint(buildPlate({}).positions);
+  const tile = slicePrint(buildPlate({ width: 8, depth: 8 }).positions);
+
+  const basket = priceBasket(
+    [{ print: big, quantity: 1, spec: {} }, { print: tile, quantity: 3, spec: {} }],
+    { shipping: { zone: 'pt' } },
+  );
+
+  const apart = shippingFor(big.size, big.grams, { zone: 'pt' }).price
+    + 3 * shippingFor(tile.size, tile.grams, { zone: 'pt' }).price;
+
+  assert.ok(basket.shipping.price < apart, 'one box cost as much as four');
+  assert.equal(basket.units, 4);
+  assert.equal(basket.items.length, 2);
+  assert.equal(basket.items[1].quantity, 3);
+  // The base fee is per plate — each is its own print — and only the delivery
+  // is shared. The arithmetic has to be one a customer can redo by hand: unit
+  // price times quantity, lines adding to the goods, goods plus delivery.
+  assert.equal(basket.items[1].lineTotal, Math.round(basket.items[1].unit.total * 3 * 100) / 100);
+  assert.equal(basket.goods, Math.round(basket.items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100);
+  assert.equal(basket.total, Math.round((basket.goods + basket.shipping.price) * 100) / 100);
+});
+
 await check('every destination is priced at once for a storefront to offer', () => {
   const print = slicePrint(buildPlate({ width: 16, depth: 16 }).positions);
   const options = shippingOptions(print);
@@ -459,6 +503,60 @@ await check('POST /api/plates/stl serves a solid to an admin', async () => {
   assert.ok(triangles > 1000, `only ${triangles} triangles`);
   assert.ok(Math.abs(size[0] - 226.038) < 0.01, `width ${size[0]}`);
   assert.ok(Math.abs(size[2] - 3.131) < 0.01, `height ${size[2]}`);
+});
+
+await check('POST /api/baskets prices a whole order in one box', async () => {
+  const { status, body } = await post('/api/baskets', {
+    zone: 'pt',
+    items: [
+      { spec: { shape: 'rect', width: 28, depth: 25 }, quantity: 1 },
+      { spec: { shape: 'text', char: 'A', depth: 12 }, quantity: 2 },
+    ],
+  });
+  assert.equal(status, 200);
+  assert.equal(body.items.length, 2);
+  assert.equal(body.units, 3);
+  assert.equal(body.items[1].quantity, 2);
+  assert.ok(body.parcel.items === 3 && body.parcel.layers >= 1);
+  assert.equal(body.total, Math.round((body.goods + body.shipping.price) * 100) / 100);
+  assert.ok(body.shippingOptions.length > 1);
+
+  // The same plates asked for one at a time pay for a delivery each.
+  const separately = await Promise.all(body.items.map((item) => post('/api/plates',
+    { ...item.spec, zone: 'pt' })));
+  const apart = separately.reduce((sum, r, i) =>
+    sum + r.body.quote.total * body.items[i].quantity, 0);
+  assert.ok(body.total < apart, `basket ${body.total} is not cheaper than ${apart}`);
+});
+
+await check('POST /api/baskets takes designs a cart already holds', async () => {
+  const created = await post('/api/designs', { spec: { shape: 'ellipse', width: 12, depth: 12 } });
+  assert.equal(created.status, 201);
+
+  const { status, body } = await post('/api/baskets', {
+    items: [{ designId: created.body.id, quantity: 2 }],
+  });
+  assert.equal(status, 200);
+  assert.equal(body.items[0].designId, created.body.id);
+  assert.equal(body.items[0].spec.shape, 'ellipse');
+  assert.equal(body.units, 2);
+});
+
+await check('POST /api/baskets refuses what it cannot price', async () => {
+  assert.equal((await post('/api/baskets', {})).status, 400);
+  assert.equal((await post('/api/baskets', { items: [] })).status, 400);
+  assert.equal((await post('/api/baskets', { items: [{}] })).status, 400);
+  assert.equal((await post('/api/baskets', { items: [{ designId: 'a'.repeat(20) }] })).status, 404);
+  assert.equal((await post('/api/baskets', { items: [{ spec: { shape: 'blob' } }] })).status, 400);
+
+  const huge = await post('/api/baskets', { items: [{ spec: {}, quantity: 100000 }] });
+  assert.equal(huge.status, 400);
+  assert.match(huge.body.error, /quantity|at most/);
+
+  const many = await post('/api/baskets', {
+    items: Array.from({ length: 40 }, () => ({ spec: {}, quantity: 1 })),
+  });
+  assert.equal(many.status, 400);
 });
 
 // --- designs and orders ----------------------------------------------------

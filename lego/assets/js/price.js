@@ -105,20 +105,70 @@ export const ZONES = [
 export const DEFAULT_ZONE = 'pt';
 export const zoneById = (id, zones = ZONES) => zones.find((z) => z.id === id);
 
+/**
+ * How much of a layer's area is usable once flat things that are not the same
+ * shape have to sit side by side. Nothing tessellates perfectly, and a packer
+ * that assumed it did would under-quote every mixed order.
+ */
+export const PACKING = {
+  efficiency: 0.8,
+};
+
 const round2 = (v) => Math.round(v * 100) / 100;
 const round3 = (v) => Math.round(v * 1000) / 1000;
 
 /**
- * The box, and the weight it will be billed at.
+ * The box a set of plates goes in, and the weight it will be billed at.
  *
- * `size` is the part's bounding box in millimetres and `grams` what it prints
- * at; everything else is the packaging.
+ * `units` are the individual plates — one entry per plate, not per line, so a
+ * quantity of three appears three times. They are packed the way someone
+ * packing them would: flat, largest first, smaller ones laid beside a bigger
+ * one where there is room, and a new layer started when there is not. The
+ * box's footprint is the largest thing in it and its depth is the layers
+ * stacked up.
+ *
+ * The area rule is an approximation, and deliberately a conservative one: two
+ * plates whose areas fit in a layer might still not fit side by side, so
+ * `efficiency` holds back a fifth of it. Over-quoting a box by a layer costs a
+ * little; under-quoting one costs the difference on every order.
  */
-export function parcelFor(size, grams, parcel = {}) {
+export function packParcel(units, parcel = {}, packing = {}) {
   const p = { ...PARCEL, ...parcel };
-  const length = (size.x || 0) + p.paddingMm;
-  const width = (size.y || 0) + p.paddingMm;
-  const height = Math.max((size.z || 0) + p.paddingMm, p.minHeightMm);
+  const k = { ...PACKING, ...packing };
+
+  let footprintX = 0;
+  let footprintY = 0;
+  let grams = 0;
+  for (const unit of units) {
+    footprintX = Math.max(footprintX, (unit.size && unit.size.x) || 0);
+    footprintY = Math.max(footprintY, (unit.size && unit.size.y) || 0);
+    grams += unit.grams || 0;
+  }
+
+  // Thickest first: a layer's depth is set by the first thing in it, so filling
+  // it with thinner plates afterwards costs nothing.
+  const order = units.slice().sort((a, b) => ((b.size && b.size.z) || 0) - ((a.size && a.size.z) || 0));
+  const usable = footprintX * footprintY * k.efficiency;
+
+  const layers = [];
+  for (const unit of order) {
+    const area = ((unit.size && unit.size.x) || 0) * ((unit.size && unit.size.y) || 0);
+    const depth = (unit.size && unit.size.z) || 0;
+    // The largest plate never fits a layer alongside anything, since a layer
+    // holds only `efficiency` of its own footprint. It gets one to itself.
+    let layer = layers.find((l) => l.used + area <= usable);
+    if (!layer) {
+      layer = { used: 0, depth };
+      layers.push(layer);
+    }
+    layer.used += area;
+    layer.depth = Math.max(layer.depth, depth);
+  }
+
+  const stacked = layers.reduce((sum, l) => sum + l.depth, 0);
+  const length = footprintX + p.paddingMm;
+  const width = footprintY + p.paddingMm;
+  const height = Math.max(stacked + p.paddingMm, p.minHeightMm);
 
   const actualKg = (grams + p.packagingGrams) / 1000;
   // Centimetres, which is the unit every carrier states the divisor in.
@@ -128,6 +178,8 @@ export function parcelFor(size, grams, parcel = {}) {
     lengthMm: round2(length),
     widthMm: round2(width),
     heightMm: round2(height),
+    layers: layers.length,
+    items: units.length,
     actualKg: round3(actualKg),
     volumetricKg: round3(volumetricKg),
     // What the carrier bills on, and which of the two decided it — worth
@@ -138,17 +190,21 @@ export function parcelFor(size, grams, parcel = {}) {
   };
 }
 
+/** The box for a single plate. */
+export function parcelFor(size, grams, parcel = {}) {
+  return packParcel([{ size, grams }], parcel);
+}
+
 /**
- * What sending that parcel costs.
+ * What sending a parcel costs.
  *
  * A zone with no brackets ships free, which is how collection in person is
  * expressed. Above the last bracket the per-kilo rate takes over, so an
  * oversized order is quoted rather than refused.
  */
-export function shippingFor(size, grams, options = {}) {
+export function priceParcel(parcel, options = {}) {
   const zones = options.zones || ZONES;
   const zone = zoneById(options.zone, zones) || zoneById(DEFAULT_ZONE, zones) || zones[0];
-  const parcel = parcelFor(size, grams, options.parcel);
 
   let price = 0;
   if (zone && zone.tiers && zone.tiers.length) {
@@ -166,6 +222,22 @@ export function shippingFor(size, grams, options = {}) {
     parcel,
     free: false,
   };
+}
+
+/** What sending one plate costs. */
+export function shippingFor(size, grams, options = {}) {
+  return priceParcel(parcelFor(size, grams, options.parcel), options);
+}
+
+/** Every zone priced for one parcel, so a storefront can offer the choice. */
+export function zoneOptions(parcel, options = {}) {
+  const zones = options.zones || ZONES;
+  const freeAbove = options.freeAbove || 0;
+  const goods = options.goods || 0;
+  return zones.map((zone) => {
+    const quoted = priceParcel(parcel, { zone: zone.id, zones });
+    return freeAbove > 0 && goods >= freeAbove ? { ...quoted, price: 0, free: true } : quoted;
+  });
 }
 
 /**
@@ -226,20 +298,90 @@ export function priceOf(print, options = {}) {
   };
 }
 
-/** Every zone priced at once, so a storefront can offer the choice. */
+/** Every zone priced for one plate, so a storefront can offer the choice. */
 export function shippingOptions(print, options = {}) {
-  const zones = (options.shipping && options.shipping.zones) || ZONES;
+  const ship = options.shipping || {};
   const size = options.size || print.size || { x: 0, y: 0, z: 0 };
   const rates = { ...RATES, ...options.rates };
   const goods = rates.base + print.grams * rates.perGram + print.hours * rates.perHour;
-  const freeAbove = (options.shipping && options.shipping.freeAbove) || 0;
 
-  return zones.map((zone) => {
-    const quoted = shippingFor(size, print.grams, {
-      zone: zone.id, zones, parcel: options.shipping && options.shipping.parcel,
-    });
-    return freeAbove > 0 && goods >= freeAbove ? { ...quoted, price: 0, free: true } : quoted;
+  return zoneOptions(parcelFor(size, print.grams, ship.parcel), {
+    zones: ship.zones, freeAbove: ship.freeAbove, goods,
   });
+}
+
+/**
+ * One order's worth of plates, in one box.
+ *
+ * `lines` are what was ordered — each carrying the print estimate for one
+ * plate and how many of them — and the shipping is quoted for the single
+ * parcel they all travel in. Quoting them separately and adding it up is what
+ * this exists to avoid: three plates in one box cost one delivery, not three.
+ *
+ * The base fee is charged per plate, not per order: each one is its own print,
+ * with its own bed to clear and part to check. Only the delivery is shared.
+ */
+export function priceBasket(lines, options = {}) {
+  const rates = { ...RATES, ...options.rates };
+  const ship = { ...(options.shipping || {}) };
+
+  const units = [];
+  let goods = 0;
+  const priced = lines.map((line) => {
+    const print = line.print;
+    const quantity = Math.max(1, Math.round(line.quantity || 1));
+    const material = print.grams * rates.perGram;
+    const machine = print.hours * rates.perHour;
+    // Rounded here, before the quantity multiplies it. An invoice has to be
+    // arithmetic a customer can redo: unit price times quantity, and the lines
+    // adding up to the total. Rounding after multiplying breaks both by a cent.
+    const unit = round2(rates.base + material + machine);
+    const lineTotal = round2(unit * quantity);
+
+    for (let i = 0; i < quantity; i++) units.push({ size: print.size, grams: print.grams });
+    goods += lineTotal;
+
+    return {
+      ...(line.designId ? { designId: line.designId } : {}),
+      spec: line.spec,
+      quantity,
+      size: print.size,
+      unit: {
+        base: round2(rates.base),
+        material: round2(material),
+        machine: round2(machine),
+        total: unit,
+        grams: round2(print.grams),
+        hours: round2(print.hours),
+        layers: print.layers,
+      },
+      lineTotal,
+    };
+  });
+
+  const parcel = packParcel(units, ship.parcel, ship.packing);
+
+  let shipping = null;
+  if (ship.enabled !== false) {
+    shipping = Number.isFinite(ship.flat)
+      ? { zone: 'flat', label: ship.label || 'Envio', price: round2(ship.flat), parcel, free: false }
+      : priceParcel(parcel, { zone: ship.zone, zones: ship.zones });
+    if (ship.freeAbove > 0 && goods >= ship.freeAbove) {
+      shipping = { ...shipping, price: 0, free: true };
+    }
+  }
+
+  return {
+    currency: rates.currency,
+    items: priced,
+    units: units.length,
+    grams: round2(units.reduce((sum, u) => sum + u.grams, 0)),
+    hours: round2(lines.reduce((sum, l) => sum + l.print.hours * Math.max(1, Math.round(l.quantity || 1)), 0)),
+    goods: round2(goods),
+    parcel,
+    shipping,
+    total: round2(goods + (shipping ? shipping.price : 0)),
+  };
 }
 
 /** Slice and price in one go, which is all either caller wants. */

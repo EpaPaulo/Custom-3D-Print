@@ -74,6 +74,16 @@ export const config = {
     currency: process.env.CURRENCY || 'EUR',
   },
 
+  // Ceilings for a basket. Every distinct plate in one has to be built and
+  // sliced before it can be priced, which is the expensive part — identical
+  // ones are only done once, so it is the number of *different* plates that is
+  // bounded tightly, not how many were ordered.
+  basket: {
+    maxLines: num(process.env.BASKET_MAX_LINES, 20),
+    maxQuantity: num(process.env.BASKET_MAX_QUANTITY, 100),
+    maxUnits: num(process.env.BASKET_MAX_UNITS, 250),
+  },
+
   // Where this shop sends things, and what the box adds. SHIPPING_ZONES
   // replaces the built-in price list wholesale; the scalars beside it tune the
   // parcel the plate goes in. SHIPPING_FLAT overrides the lot with one number

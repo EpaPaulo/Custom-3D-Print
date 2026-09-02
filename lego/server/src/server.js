@@ -4,7 +4,7 @@ import express from 'express';
 import { config, assertRuntimeConfig } from './config.js';
 import * as store from './store.js';
 import {
-  catalogue, describe, renderSTL, slug, normaliseSpec, SpecError,
+  catalogue, describe, basketQuote, renderSTL, slug, normaliseSpec, SpecError,
 } from './render.js';
 
 // Read once: it is a fixed asset, and a failure to find it should stop the
@@ -68,6 +68,46 @@ export function createApp() {
   api.post('/plates', (req, res, next) => {
     try {
       res.json(describe(req.body || {}, (req.body || {}).zone));
+    } catch (err) {
+      if (err instanceof SpecError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  });
+
+  // A whole order at once. Worth its own endpoint rather than a loop over
+  // /plates on the storefront's side, because the delivery is shared: several
+  // plates go in one box, and pricing them one at a time and adding it up
+  // charges for deliveries that will not happen.
+  //
+  // An item names either the plate it wants or a design already kept here,
+  // which is what a cart actually holds.
+  api.post('/baskets', async (req, res, next) => {
+    try {
+      const { items, zone } = req.body || {};
+      if (!Array.isArray(items) || !items.length) {
+        return res.status(400).json({ error: 'items is required' });
+      }
+      if (items.length > config.basket.maxLines) {
+        return res.status(400).json({ error: `a basket may name at most ${config.basket.maxLines} different plates` });
+      }
+
+      const lines = [];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') {
+          return res.status(400).json({ error: 'every item must be an object' });
+        }
+        if (item.designId != null) {
+          const design = await store.getDesign(item.designId);
+          if (!design) return res.status(404).json({ error: `unknown design ${String(item.designId).slice(0, 24)}` });
+          lines.push({ spec: design.spec, quantity: item.quantity, designId: design.id });
+        } else if (item.spec && typeof item.spec === 'object') {
+          lines.push({ spec: item.spec, quantity: item.quantity });
+        } else {
+          return res.status(400).json({ error: 'every item needs a spec or a designId' });
+        }
+      }
+
+      res.json(basketQuote(lines, zone));
     } catch (err) {
       if (err instanceof SpecError) return res.status(400).json({ error: err.message });
       next(err);

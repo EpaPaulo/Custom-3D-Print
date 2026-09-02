@@ -121,6 +121,24 @@ function readDesignFromFrame(frame, origin) {
   });
 }
 
+/**
+ * What a whole cart costs, delivered.
+ *
+ * `items` are `{ designId, quantity }` or `{ spec, quantity }` — a cart holds
+ * the first kind. Call this rather than quoting each line and adding it up:
+ * the plates travel in one box, and one box is one delivery charge.
+ *
+ * The answer carries every destination priced for that same box, so a shipping
+ * picker on the cart page needs one request.
+ */
+export async function quoteBasket(apiBase, items, zone) {
+  const api = String(apiBase).replace(/\/+$/, '');
+  if (!Array.isArray(items) || !items.length) {
+    throw new BridgeError('There is nothing in the basket.');
+  }
+  return postJson(`${api}/api/baskets`, zone ? { items, zone } : { items });
+}
+
 async function postJson(url, body) {
   const res = await fetch(url, {
     method: 'POST',

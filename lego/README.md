@@ -236,6 +236,7 @@ and an unguarded print file is the product given away.
 | `GET /api/health` | |
 | `GET /api/catalogue` | shapes, systems, patterns, fonts, limits — so a storefront need not hardcode them |
 | `POST /api/plates` | a spec in, dimensions / stud count / file size / delivered price out. Add `zone` to price a destination; every zone comes back priced too. Keeps nothing |
+| `POST /api/baskets` | a whole order in one box: several `{spec\|designId, quantity}` lines, one shared delivery |
 | `POST /api/plates/stl` | the print file. Admin-only unless `ALLOW_PUBLIC_STL=1` |
 | `POST /api/designs` | keep a design, get an id back |
 | `GET /api/designs/:id` | what was ordered. Never the STL |
@@ -299,9 +300,46 @@ sell anything. `SHIPPING_FLAT` replaces the table with a single price if you
 charge the same to send anything, `SHIPPING_FREE_ABOVE` waives it over a
 threshold, and `SHIPPING_ENABLED=0` drops it from the quote entirely.
 
-One caveat: shipping is quoted for **one plate in one parcel**. Several plates
-in an order would go in one box and cost less than the sum of their quotes;
-combining them is an order-level job this backend does not do yet.
+`POST /api/plates` quotes **one plate in one parcel**. A whole order goes to
+`POST /api/baskets` instead, which is the same pricing over one shared box —
+see below.
+
+### A whole basket
+
+Quoting a cart line by line and adding it up charges for deliveries that will
+not happen: three plates go in one box. `POST /api/baskets` prices the order as
+one parcel.
+
+```jsonc
+{
+  "zone": "pt",
+  "items": [
+    { "spec": { "shape": "rect", "width": 28, "depth": 25 }, "quantity": 1 },
+    { "designId": "9857e067159f45e3a939", "quantity": 2 }   // what a cart holds
+  ]
+}
+```
+
+The plates are packed the way someone packing them would: flat, largest first,
+smaller ones laid beside a bigger one where there is room, a new layer when
+there is not. The box's footprint is the largest plate in it and its depth is
+the layers stacked up. A baseplate and three small tiles come out as one
+two-layer box at €3.50 rather than four parcels at €14.00.
+
+The area rule is deliberately conservative — two plates whose areas fit a layer
+might still not fit side by side, so a fifth of each layer is held back. Over-
+quoting a box by a layer costs a little; under-quoting one costs the difference
+on every order that ships.
+
+The **base fee is per plate, not per order**: each is its own print, with its own
+bed to clear and part to check. Only the delivery is shared. And the arithmetic
+is one a customer can redo by hand — unit price × quantity, lines adding to the
+goods, goods plus delivery — so the rounding happens at the unit price rather
+than after multiplying.
+
+`BASKET_MAX_LINES`, `BASKET_MAX_QUANTITY` and `BASKET_MAX_UNITS` bound it.
+Identical plates are built and sliced once however many were ordered, so what is
+bounded tightly is the number of *different* plates, not the count.
 
 ### Deploying the two apart
 

@@ -15,7 +15,9 @@ import {
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from '../../assets/js/plate.js';
 import { slicePrint, PROFILES } from '../../assets/js/slice.js';
-import { priceOf, shippingOptions, ZONES } from '../../assets/js/price.js';
+import {
+  priceOf, priceBasket, shippingOptions, zoneOptions, ZONES,
+} from '../../assets/js/price.js';
 import { trianglesToSTL } from '../../assets/js/stl.js';
 import { config } from './config.js';
 
@@ -122,6 +124,87 @@ export function renderSTL(input, name = 'plate') {
   const plate = buildPlate(spec);
   const { buffer } = trianglesToSTL(plate.positions, `${name} ${spec.width}x${spec.depth} ${spec.shape}`);
   return Buffer.from(buffer);
+}
+
+/**
+ * One order's worth of plates, priced together.
+ *
+ * `lines` are `{ spec, quantity, designId? }`. Each distinct plate is built and
+ * sliced once however many were ordered, and once however many lines happen to
+ * ask for the same thing — the expensive part is the geometry, and it does not
+ * change with the count.
+ *
+ * The point of the whole endpoint is the shipping: three plates travel in one
+ * box, and quoting them one at a time and adding it up charges for three
+ * deliveries that will not happen.
+ */
+export function basketQuote(lines, zone) {
+  if (!Array.isArray(lines) || !lines.length) {
+    throw new SpecError('A basket needs at least one item.');
+  }
+  if (lines.length > config.basket.maxLines) {
+    throw new SpecError(
+      `${lines.length} different plates is more than this shop quotes at once; ` +
+      `the ceiling is ${config.basket.maxLines}.`,
+    );
+  }
+
+  const cache = new Map();
+  let units = 0;
+
+  const priced = lines.map((line) => {
+    const quantity = Math.round(Number(line.quantity) || 1);
+    if (!Number.isFinite(quantity) || quantity < 1 || quantity > config.basket.maxQuantity) {
+      throw new SpecError(`A quantity must be between 1 and ${config.basket.maxQuantity}.`);
+    }
+
+    const spec = normaliseSpec(line.spec);
+    units += quantity;
+    if (units > config.basket.maxUnits) {
+      throw new SpecError(`A basket may hold at most ${config.basket.maxUnits} plates.`);
+    }
+
+    // Two lines asking for the same plate are the same geometry, and slicing is
+    // the expensive step.
+    const key = JSON.stringify(spec);
+    if (!cache.has(key)) {
+      const plate = buildPlate(spec);
+      cache.set(key, slicePrint(plate.positions, {
+        profile: config.print.profile,
+        overrides: config.print.overrides,
+        machine: config.print.machine,
+      }));
+    }
+
+    return {
+      spec,
+      quantity,
+      designId: line.designId,
+      print: cache.get(key),
+    };
+  });
+
+  const shipping = {
+    enabled: config.shipping.enabled,
+    zone: zone || config.shipping.defaultZone,
+    zones: config.shipping.zones || undefined,
+    parcel: config.shipping.parcel,
+    freeAbove: config.shipping.freeAbove,
+    ...(config.shipping.flat != null ? { flat: config.shipping.flat } : {}),
+  };
+
+  const quoted = priceBasket(priced, { rates: config.price, shipping });
+
+  return config.shipping.enabled && config.shipping.flat == null
+    ? {
+      ...quoted,
+      shippingOptions: zoneOptions(quoted.parcel, {
+        zones: config.shipping.zones,
+        freeAbove: config.shipping.freeAbove,
+        goods: quoted.goods,
+      }),
+    }
+    : quoted;
 }
 
 /** A filename an operator can recognise on a printer's SD card. */
