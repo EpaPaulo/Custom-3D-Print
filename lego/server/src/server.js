@@ -62,9 +62,12 @@ export function createApp() {
   // What a spec comes to: dimensions, stud count, file size and a price. The
   // configurator computes the same numbers locally for its own preview; this
   // is the copy that decides, and the one a shop quotes from.
+  // `zone` rides alongside the spec rather than inside it: where a plate is
+  // going has nothing to do with what it is, and must not end up as part of
+  // the design a customer's order refers to.
   api.post('/plates', (req, res, next) => {
     try {
-      res.json(describe(req.body || {}));
+      res.json(describe(req.body || {}, (req.body || {}).zone));
     } catch (err) {
       if (err instanceof SpecError) return res.status(400).json({ error: err.message });
       next(err);
@@ -92,22 +95,27 @@ export function createApp() {
   // Keep a design so an order can refer to it later by id alone.
   api.post('/designs', async (req, res, next) => {
     try {
-      const { spec, previewPng, note } = req.body || {};
+      const { spec, previewPng, note, zone } = req.body || {};
       if (!spec || typeof spec !== 'object') {
         return res.status(400).json({ error: 'spec is required' });
       }
 
       // Build it now. A spec that cannot be built is refused at design time
       // rather than at fulfilment, when there is a paying customer waiting.
-      const described = describe(spec);
+      const described = describe(spec, zone);
 
       const preview = decodeBase64Png(previewPng, config.maxPreviewBytes);
+
+      // The record keeps the quote the customer was shown, minus the list of
+      // other destinations — that is a picker's worth of options, not part of
+      // what was ordered.
+      const { shippingOptions: _offered, ...quoted } = described.quote;
 
       const record = await store.putDesign({
         spec: described.spec,
         size: described.size,
         studs: described.studs,
-        quote: described.quote,
+        quote: quoted,
         note: typeof note === 'string' ? note.slice(0, 500) : '',
       }, preview);
 

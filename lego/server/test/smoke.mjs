@@ -20,7 +20,8 @@ const { createApp } = await import('../src/server.js');
 const store = await import('../src/store.js');
 const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
-const { slicePrint, priceOf, PROFILES } = await import('../../assets/js/slice.js');
+const { slicePrint, PROFILES } = await import('../../assets/js/slice.js');
+const { priceOf, shippingFor, parcelFor, shippingOptions, ZONES } = await import('../../assets/js/price.js');
 
 await store.init();
 
@@ -277,11 +278,80 @@ await check('the settings move the estimate the way they should', () => {
 });
 
 await check('a bigger plate costs more, and the base fee is always in there', () => {
-  const small = priceOf(slicePrint(buildPlate({ width: 8, depth: 8 }).positions));
-  const large = priceOf(slicePrint(buildPlate({ width: 24, depth: 24 }).positions));
-  assert.ok(large.total > small.total * 2, 'price barely moved with size');
-  assert.ok(small.total > small.base, 'the base fee went missing');
-  assert.equal(small.total, Math.round((small.base + small.material + small.machine) * 100) / 100);
+  const at = (spec) => priceOf(slicePrint(buildPlate(spec).positions), { shipping: { enabled: false } });
+  const small = at({ width: 8, depth: 8 });
+  const large = at({ width: 24, depth: 24 });
+  assert.ok(large.goods > small.goods * 2, 'price barely moved with size');
+  assert.ok(small.goods > small.base, 'the base fee went missing');
+  assert.equal(small.goods, Math.round((small.base + small.material + small.machine) * 100) / 100);
+  assert.equal(small.shipping, null);
+  assert.equal(small.total, small.goods);
+});
+
+// --- shipping --------------------------------------------------------------
+
+await check('a plate is billed on the size of its box, not on what it weighs', () => {
+  // The point of quoting shipping from the geometry: a baseplate is light and
+  // the size of a sheet of paper, and a carrier charges for the second of
+  // those. Getting this backwards under-quotes every large plate.
+  const big = slicePrint(buildPlate({ width: 40, depth: 40 }).positions);
+  const parcel = parcelFor(big.size, big.grams);
+  assert.equal(parcel.billedBy, 'size', 'a 40-stud plate should bill on volume');
+  assert.ok(parcel.volumetricKg > parcel.actualKg * 2, 'volumetric weight barely moved');
+  assert.equal(parcel.billedKg, parcel.volumetricKg);
+
+  // A small tile is the other way round: mostly packaging, and billed for it.
+  const tile = slicePrint(buildPlate({ width: 6, depth: 6 }).positions);
+  assert.equal(parcelFor(tile.size, tile.grams).billedBy, 'weight');
+});
+
+await check('shipping rises with distance and with the parcel', () => {
+  const small = slicePrint(buildPlate({ width: 8, depth: 8 }).positions);
+  const large = slicePrint(buildPlate({ width: 44, depth: 44 }).positions);
+
+  assert.equal(shippingFor(small.size, small.grams, { zone: 'pickup' }).price, 0);
+  const home = shippingFor(small.size, small.grams, { zone: 'pt' }).price;
+  const abroad = shippingFor(small.size, small.grams, { zone: 'world' }).price;
+  assert.ok(abroad > home, 'the world costs no more than next door');
+
+  assert.ok(shippingFor(large.size, large.grams, { zone: 'pt' }).price > home,
+    'a much larger parcel ships for the same price');
+
+  // An unknown destination falls back to the default rather than shipping free.
+  assert.ok(shippingFor(small.size, small.grams, { zone: 'mars' }).price > 0);
+});
+
+await check('a parcel past the last bracket is quoted, not refused', () => {
+  const heavy = { grams: 40000, size: { x: 400, y: 400, z: 200 }, hours: 1, metres: 1, layers: 1, volumeMm3: 1, solidMm3: 1, profile: {} };
+  const quoted = shippingFor(heavy.size, heavy.grams, { zone: 'pt' });
+  const top = ZONES.find((z) => z.id === 'pt').tiers.slice(-1)[0];
+  assert.ok(quoted.parcel.billedKg > top.upToKg, 'the fixture is not actually oversized');
+  assert.ok(quoted.price > top.price, 'the per-kilo rate never kicked in');
+});
+
+await check('free shipping applies above a threshold, and a flat rate overrides the table', () => {
+  const print = slicePrint(buildPlate({ width: 20, depth: 20 }).positions);
+
+  const under = priceOf(print, { shipping: { zone: 'pt', freeAbove: 1000 } });
+  assert.ok(under.shipping.price > 0);
+  assert.equal(under.shipping.free, false);
+
+  const over = priceOf(print, { shipping: { zone: 'pt', freeAbove: 1 } });
+  assert.equal(over.shipping.price, 0);
+  assert.equal(over.shipping.free, true);
+  assert.equal(over.total, over.goods);
+
+  const flat = priceOf(print, { shipping: { flat: 4.25 } });
+  assert.equal(flat.shipping.price, 4.25);
+  assert.equal(flat.total, Math.round((flat.goods + 4.25) * 100) / 100);
+});
+
+await check('every destination is priced at once for a storefront to offer', () => {
+  const print = slicePrint(buildPlate({ width: 16, depth: 16 }).positions);
+  const options = shippingOptions(print);
+  assert.equal(options.length, ZONES.length);
+  assert.ok(options.every((o) => o.price >= 0 && o.parcel.billedKg > 0));
+  assert.equal(options.find((o) => o.zone === 'pickup').price, 0);
 });
 
 // --- API -------------------------------------------------------------------
@@ -338,6 +408,33 @@ await check('POST /api/plates quotes the reference plate from a real slice', asy
   assert.ok(body.quote.fill > 0 && body.quote.fill <= 100, `fill ${body.quote.fill}%`);
   // Priced from the print, not from the solid: the mesh volume is heavier.
   assert.ok(body.quote.grams < (body.volumeMm3 / 1000) * 1.24, 'quoted the solid weight');
+
+  // Delivered price: the goods plus getting them there.
+  assert.ok(body.quote.goods > 0);
+  assert.ok(body.quote.shipping.price > 0, 'nothing charged for shipping');
+  assert.equal(body.quote.total, Math.round((body.quote.goods + body.quote.shipping.price) * 100) / 100);
+  assert.ok(body.quote.shippingOptions.length > 1, 'no choice of destination offered');
+});
+
+await check('POST /api/plates prices the destination it was asked about', async () => {
+  const home = await post('/api/plates', { ...REFERENCE, zone: 'pt' });
+  const abroad = await post('/api/plates', { ...REFERENCE, zone: 'world' });
+  const collected = await post('/api/plates', { ...REFERENCE, zone: 'pickup' });
+
+  assert.ok(abroad.body.quote.total > home.body.quote.total, 'distance cost nothing');
+  assert.equal(collected.body.quote.shipping.price, 0);
+  assert.equal(collected.body.quote.total, collected.body.quote.goods);
+  // Where it ships to says nothing about what it is, so the plate is identical.
+  assert.equal(home.body.quote.grams, abroad.body.quote.grams);
+  assert.deepEqual(home.body.spec, abroad.body.spec);
+});
+
+await check('GET /api/catalogue offers the destinations without the price list', async () => {
+  const { body } = await json('/api/catalogue');
+  assert.ok(body.shipping.zones.some((z) => z.id === 'pickup'));
+  assert.equal(body.shipping.defaultZone, 'pt');
+  // Names only: a storefront asks for a price, it does not compute one.
+  assert.equal(JSON.stringify(body.shipping).includes('upToKg'), false);
 });
 
 await check('POST /api/plates refuses a shape it cannot build', async () => {

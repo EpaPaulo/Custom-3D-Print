@@ -14,7 +14,8 @@ import {
   buildPlate, normaliseSpec, resolve, SpecError,
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from '../../assets/js/plate.js';
-import { slicePrint, priceOf, PROFILES } from '../../assets/js/slice.js';
+import { slicePrint, PROFILES } from '../../assets/js/slice.js';
+import { priceOf, shippingOptions, ZONES } from '../../assets/js/price.js';
 import { trianglesToSTL } from '../../assets/js/stl.js';
 import { config } from './config.js';
 
@@ -34,6 +35,11 @@ export function catalogue() {
     // of no use to a storefront, which sends a character and gets a plate.
     fonts: FONTS.map((f) => ({ id: f.id, label: f.label })),
     profiles: Object.entries(PROFILES).map(([id, p]) => ({ id, label: p.label })),
+    shipping: config.shipping.enabled ? {
+      defaultZone: config.shipping.defaultZone,
+      freeAbove: config.shipping.freeAbove,
+      zones: (config.shipping.zones || ZONES).map((z) => ({ id: z.id, label: z.label })),
+    } : null,
     characters: CHARACTERS,
     defaults: DEFAULTS,
     limits: LIMITS,
@@ -53,13 +59,29 @@ export function catalogue() {
  * The profile is the shop's, out of the environment, so the quote is for the
  * way this shop actually prints rather than for a generic one.
  */
-export function quote(plate) {
+export function quote(plate, zone) {
   const print = slicePrint(plate.positions, {
     profile: config.print.profile,
     overrides: config.print.overrides,
     machine: config.print.machine,
   });
-  return priceOf(print, config.price);
+
+  const shipping = {
+    enabled: config.shipping.enabled,
+    zone: zone || config.shipping.defaultZone,
+    zones: config.shipping.zones || undefined,
+    parcel: config.shipping.parcel,
+    freeAbove: config.shipping.freeAbove,
+    ...(config.shipping.flat != null ? { flat: config.shipping.flat } : {}),
+  };
+
+  const priced = priceOf(print, { rates: config.price, shipping });
+
+  // Every destination priced alongside, so a storefront can offer the choice
+  // without asking again for each one.
+  return config.shipping.enabled && config.shipping.flat == null
+    ? { ...priced, shippingOptions: shippingOptions(print, { rates: config.price, shipping }) }
+    : priced;
 }
 
 const round = (v, places) => Math.round(v * 10 ** places) / 10 ** places;
@@ -71,7 +93,7 @@ const round = (v, places) => Math.round(v * 10 ** places) / 10 ** places;
  * are properties of the mesh, and a plate whose studs will not fit its own
  * shape should say so here, not once someone has paid.
  */
-export function describe(input) {
+export function describe(input, zone) {
   const spec = normaliseSpec(input);
   const plate = buildPlate(spec);
   const d = resolve(spec);
@@ -90,7 +112,7 @@ export function describe(input) {
     // The solid volume of the mesh. Kept because it is a property of the
     // geometry, unlike the quote, which is a property of how it gets printed.
     volumeMm3: round(plate.volume, 1),
-    quote: quote(plate),
+    quote: quote(plate, zone),
   };
 }
 

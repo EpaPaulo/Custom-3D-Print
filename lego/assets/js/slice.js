@@ -213,6 +213,13 @@ export function slicePrint(positions, options = {}) {
     profile: { ...p },
     machine: { ...m },
     grid: { cell, nx, ny },
+    // The part's own bounding box. Shipping is priced off it, and for a plate
+    // that matters more than the weight does.
+    size: {
+      x: bounds.maxX - bounds.minX,
+      y: bounds.maxY - bounds.minY,
+      z: height,
+    },
   };
 }
 
@@ -221,6 +228,7 @@ function empty(machine, profile) {
     grams: 0, metres: 0, hours: 0, volumeMm3: 0, layers: 0, solidGrams: 0,
     breakdown: { wallMm3: 0, solidMm3: 0, sparseMm3: 0, firstLayerMm3: 0 },
     profile: { ...profile }, machine: { ...machine }, grid: { cell: 0, nx: 0, ny: 0 },
+    size: { x: 0, y: 0, z: 0 }, solidMm3: 0,
   };
 }
 
@@ -427,53 +435,4 @@ function countIslands(grid, nx, ny) {
     }
   }
   return islands;
-}
-
-// ---------------------------------------------------------------------------
-// Pricing
-// ---------------------------------------------------------------------------
-
-/**
- * What a shop charges. Material is what the slicer says the print takes, and
- * machine time is what it says the print takes; the base fee covers everything
- * that does not scale with either — the bed being cleared, the part being
- * checked, the packaging.
- *
- * These are defaults for the open generator. A shop sets its own in the
- * backend's environment, and the backend's answer is the one an order is
- * priced at.
- */
-export const RATES = {
-  base: 4.5,
-  perGram: 0.06,
-  perHour: 1.2,
-  currency: 'EUR',
-};
-
-const round2 = (v) => Math.round(v * 100) / 100;
-
-export function priceOf(print, rates = {}) {
-  const r = { ...RATES, ...rates };
-  const material = print.grams * r.perGram;
-  const machine = print.hours * r.perHour;
-  return {
-    currency: r.currency,
-    base: round2(r.base),
-    material: round2(material),
-    machine: round2(machine),
-    total: round2(r.base + material + machine),
-    grams: round2(print.grams),
-    metres: round2(print.metres),
-    hours: round2(print.hours),
-    layers: print.layers,
-    // How much of the solid the print actually is. A thin plate is nearly all
-    // skin and comes out near 100%; a thick one is mostly air.
-    fill: print.solidMm3 > 0 ? Math.round((print.volumeMm3 / print.solidMm3) * 100) : 100,
-    profile: print.profile,
-  };
-}
-
-/** Slice and price in one go, which is all either caller wants. */
-export function quotePrint(positions, options = {}) {
-  return priceOf(slicePrint(positions, options), options.rates);
 }

@@ -53,7 +53,15 @@
         <div style="display:contents"><dt>Grelha</dt><dd id="d-grid">—</dd></div>
         <div style="display:contents"><dt>Dimensões</dt><dd id="d-size">—</dd></div>
         <div style="display:contents"><dt>Pinos</dt><dd id="d-studs">—</dd></div>
+        <div style="display:contents"><dt>Peça</dt><dd id="d-goods">—</dd></div>
+        <div style="display:contents"><dt>Envio</dt><dd id="d-ship">—</dd></div>
       </dl>
+
+      <label for="zone" style="display:block;font-size:14px;color:var(--muted);margin-bottom:6px">
+        Enviar para
+      </label>
+      <select id="zone" style="width:100%;padding:9px;font:inherit;font-size:14px;
+        border:1px solid var(--line);border-radius:8px;margin-bottom:14px"></select>
 
       <button id="add" disabled>Adicionar ao carrinho</button>
       <p class="msg" id="msg"></p>
@@ -108,13 +116,40 @@ async function refreshQuote() {
     // Ask the configurator for the full spec rather than rebuilding it from
     // the summary: the summary is for display, the spec is the truth.
     const design = await ask(frame);
-    const quoted = await quotePlate($('api').value.trim(), design.spec);
+    const quoted = await quotePlate($('api').value.trim(), design.spec, $('zone').value || undefined);
+    const q = quoted.quote;
+
+    // The zone list comes back priced with the quote, so filling the picker
+    // costs no extra request.
+    if (q.shippingOptions && !$('zone').options.length) {
+      for (const option of q.shippingOptions) {
+        const el = document.createElement('option');
+        el.value = option.zone;
+        el.textContent = option.label;
+        $('zone').appendChild(el);
+      }
+      $('zone').value = q.shipping.zone;
+    }
+    if (q.shippingOptions) {
+      for (const el of $('zone').options) {
+        const priced = q.shippingOptions.find((o) => o.zone === el.value);
+        if (priced) {
+          el.textContent = `${priced.label} — ${priced.free ? 'grátis' : priced.price.toFixed(2) + ' ' + q.currency}`;
+        }
+      }
+    }
+
     $('price').innerHTML =
-      `${quoted.quote.total.toFixed(2)} ${quoted.quote.currency} ` +
-      `<small>· ${quoted.quote.grams} g · ~${quoted.quote.hours.toFixed(1)} h de impressão</small>`;
+      `${q.total.toFixed(2)} ${q.currency} ` +
+      `<small>· ${q.grams} g · ~${q.hours.toFixed(1)} h de impressão</small>`;
+    $('d-goods').textContent = `${q.goods.toFixed(2)} ${q.currency}`;
+    $('d-ship').textContent = q.shipping
+      ? (q.shipping.free ? 'grátis' : `${q.shipping.price.toFixed(2)} ${q.currency} · ${q.shipping.parcel.billedKg.toFixed(2)} kg`)
+      : '—';
     say('');
   } catch (err) {
     $('price').textContent = '—';
+    $('d-goods').textContent = $('d-ship').textContent = '—';
     say(`Sem orçamento: ${err.message}`, 'err');
   }
 }
@@ -147,7 +182,7 @@ $('add').addEventListener('click', async () => {
     const res = await fetch(`${api}/api/designs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec: design.spec, previewPng: design.previewPng }),
+      body: JSON.stringify({ spec: design.spec, previewPng: design.previewPng, zone: $('zone').value || undefined }),
     });
     if (!res.ok) throw new BridgeError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const created = await res.json();
@@ -162,6 +197,7 @@ $('add').addEventListener('click', async () => {
 });
 
 $('api').addEventListener('change', refreshQuote);
+$('zone').addEventListener('change', refreshQuote);
 </script>
 </body>
 </html>

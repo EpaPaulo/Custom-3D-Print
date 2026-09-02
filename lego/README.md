@@ -235,7 +235,7 @@ and an unguarded print file is the product given away.
 |---|---|
 | `GET /api/health` | |
 | `GET /api/catalogue` | shapes, systems, patterns, fonts, limits — so a storefront need not hardcode them |
-| `POST /api/plates` | a spec in, dimensions / stud count / file size / price out. Keeps nothing |
+| `POST /api/plates` | a spec in, dimensions / stud count / file size / delivered price out. Add `zone` to price a destination; every zone comes back priced too. Keeps nothing |
 | `POST /api/plates/stl` | the print file. Admin-only unless `ALLOW_PUBLIC_STL=1` |
 | `POST /api/designs` | keep a design, get an id back |
 | `GET /api/designs/:id` | what was ordered. Never the STL |
@@ -272,6 +272,36 @@ way no formula predicts:
 Same footprint, and pricing the second by volume would overcharge by nearly
 three times. Set `PRINT_PROFILE` and the overrides beside it to the way your
 shop really prints; the quote is only as good as that matches.
+
+### Shipping
+
+Shipping is quoted from the **box**, not from the weight, because for these
+products the box is what decides. A carrier bills whichever is greater — what a
+parcel weighs, or what its size says it should weigh — and a printed plate is
+light and the size of a sheet of paper:
+
+| | in the box | actual | volumetric | billed |
+|---|---|---|---|---|
+| 6 × 6 tile | 7 × 7 × 3 cm | 0.13 kg | 0.05 kg | **0.13 kg**, by weight |
+| 28 × 25 baseplate | 25 × 23 × 3 cm | 0.21 kg | 0.34 kg | **0.34 kg**, by size |
+| 40 × 40 baseplate | 35 × 35 × 3 cm | 0.32 kg | 0.73 kg | **0.73 kg**, by size |
+
+So the generator builds the parcel — the plate's footprint plus padding, and a
+minimum depth, because a flat plate still needs a box with some depth to it —
+works out both weights, and prices the greater against the destination's
+brackets. Past the last bracket the per-kilo rate takes over, so an oversized
+order is quoted rather than refused.
+
+**The built-in zone prices are placeholders.** They have the shape a carrier's
+price list takes, filled in with plausible numbers so the thing quotes something
+sensible out of the box. Put your carrier's own in `SHIPPING_ZONES` before you
+sell anything. `SHIPPING_FLAT` replaces the table with a single price if you
+charge the same to send anything, `SHIPPING_FREE_ABOVE` waives it over a
+threshold, and `SHIPPING_ENABLED=0` drops it from the quote entirely.
+
+One caveat: shipping is quoted for **one plate in one parcel**. Several plates
+in an order would go in one box and cost less than the sum of their quotes;
+combining them is an order-level job this backend does not do yet.
 
 ### Deploying the two apart
 

@@ -10,6 +10,40 @@ const num = (v, fallback) => (Number.isFinite(Number(v)) && v !== '' && v != nul
 // value rather than overriding it with a null.
 const defined = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
 
+/**
+ * A carrier's price list out of the environment, as JSON.
+ *
+ * Refused rather than patched up if it is malformed: a shipping table that
+ * silently half-loaded would undercharge every order it touched, and finding
+ * that out from the accounts is worse than not starting.
+ */
+function parseZones(raw) {
+  if (!raw) return null;
+  let zones;
+  try {
+    zones = JSON.parse(raw);
+  } catch {
+    throw new Error('SHIPPING_ZONES is not valid JSON.');
+  }
+  if (!Array.isArray(zones) || !zones.length) {
+    throw new Error('SHIPPING_ZONES must be a non-empty array of zones.');
+  }
+  for (const zone of zones) {
+    if (!zone || typeof zone.id !== 'string' || !zone.id) {
+      throw new Error('Every shipping zone needs an id.');
+    }
+    if (zone.tiers != null && !Array.isArray(zone.tiers)) {
+      throw new Error(`Shipping zone "${zone.id}" has tiers that are not a list.`);
+    }
+    for (const tier of zone.tiers || []) {
+      if (!Number.isFinite(tier.upToKg) || !Number.isFinite(tier.price)) {
+        throw new Error(`Shipping zone "${zone.id}" has a tier without upToKg and price.`);
+      }
+    }
+  }
+  return zones;
+}
+
 export const config = {
   port: num(process.env.PORT, 3100),
 
@@ -38,6 +72,24 @@ export const config = {
     perGram: num(process.env.PRICE_PER_GRAM, 0.06),
     perHour: num(process.env.PRICE_PER_HOUR, 1.2),
     currency: process.env.CURRENCY || 'EUR',
+  },
+
+  // Where this shop sends things, and what the box adds. SHIPPING_ZONES
+  // replaces the built-in price list wholesale; the scalars beside it tune the
+  // parcel the plate goes in. SHIPPING_FLAT overrides the lot with one number
+  // for a shop that charges the same to send anything.
+  shipping: {
+    enabled: process.env.SHIPPING_ENABLED !== '0',
+    defaultZone: process.env.SHIPPING_DEFAULT_ZONE || 'pt',
+    freeAbove: num(process.env.SHIPPING_FREE_ABOVE, 0),
+    flat: num(process.env.SHIPPING_FLAT, null),
+    zones: parseZones(process.env.SHIPPING_ZONES),
+    parcel: defined({
+      packagingGrams: num(process.env.PACKAGING_GRAMS, null),
+      paddingMm: num(process.env.PARCEL_PADDING_MM, null),
+      minHeightMm: num(process.env.PARCEL_MIN_HEIGHT_MM, null),
+      volumetricDivisor: num(process.env.VOLUMETRIC_DIVISOR, null),
+    }),
   },
 
   // How this shop prints. A preset, plus the handful of settings a shop

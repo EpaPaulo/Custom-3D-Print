@@ -27,6 +27,7 @@ export class BridgeError extends Error {}
  * @param {number|string} opts.variantId  Shopify variant to add
  * @param {number}  [opts.quantity]
  * @param {string}  [opts.previewLabel]  visible property name for the thumbnail
+ * @param {string}  [opts.zone]      destination to price shipping against
  * @param {HTMLIFrameElement} [opts.frame]  the configurator, if it is embedded
  * @param {string}  [opts.frameOrigin]   origin to address the frame at
  * @returns {Promise<{designId: string, quote: object, cartItem: object}>}
@@ -56,6 +57,7 @@ export async function addPlateToCart(opts) {
   const created = await postJson(`${api}/api/designs`, {
     spec: design.spec,
     previewPng: design.previewPng,
+    zone: opts.zone,
   });
 
   if (!created || !created.id) {
@@ -75,10 +77,14 @@ export async function addPlateToCart(opts) {
 /**
  * What the backend would charge for the plate currently on screen, without
  * keeping anything. Use it to show a live price beside the configurator.
+ *
+ * `zone` prices one destination; the answer carries every other destination
+ * priced alongside it, so a shipping picker needs one request, not one per
+ * option.
  */
-export async function quotePlate(apiBase, spec) {
+export async function quotePlate(apiBase, spec, zone) {
   const api = String(apiBase).replace(/\/+$/, '');
-  return postJson(`${api}/api/plates`, spec);
+  return postJson(`${api}/api/plates`, zone ? { ...spec, zone } : spec);
 }
 
 function readDesign() {

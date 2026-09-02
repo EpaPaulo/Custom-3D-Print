@@ -5,7 +5,8 @@ import {
   SHAPES, SYSTEMS, PATTERNS, QUALITIES, DEFAULTS, LIMITS, FONTS, CHARACTERS,
 } from './plate.js';
 import { buildOutline } from './shapes.js';
-import { quotePrint, PROFILES, RATES, DEFAULT_PROFILE } from './slice.js';
+import { slicePrint, PROFILES, DEFAULT_PROFILE } from './slice.js';
+import { priceOf, RATES, ZONES, DEFAULT_ZONE } from './price.js';
 import { trianglesToSTL, downloadBlob } from './stl.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,10 +49,13 @@ const COLOURS = [
 // ---------------------------------------------------------------------------
 
 let spec = { ...DEFAULTS };
-let view = { colour: 'red', bed: 'none', wire: false, profile: DEFAULT_PROFILE };
+let view = { colour: 'red', bed: 'none', wire: false, profile: DEFAULT_PROFILE, zone: DEFAULT_ZONE };
 let rates = { ...RATES };
+// Empty means "use the zone table"; a number replaces it. `freeAbove` of zero
+// never waives the charge.
+let shipping = { flat: null, freeAbove: 0 };
 let current = null;   // the last successful build
-let quote = null;     // the last slice of it
+let print = null;     // the last slice of it
 
 restore();
 
@@ -183,6 +187,7 @@ function buildSelects() {
   fill($('f-bed'), BEDS.map((b) => [b.id, b.label]));
   fill($('f-font'), FONTS.map((f) => [f.id, f.label]));
   fill($('f-profile'), Object.entries(PROFILES).map(([id, p]) => [id, p.label]));
+  fill($('f-zone'), ZONES.map((z) => [z.id, z.label]));
 
   const host = $('swatches');
   for (const c of COLOURS) {
@@ -253,9 +258,12 @@ function writeControls() {
   $('f-char').value = spec.char;
   $('f-font').value = spec.font;
   $('f-profile').value = view.profile;
+  $('f-zone').value = view.zone;
   $('f-rate-base').value = rates.base;
   $('f-rate-gram').value = rates.perGram;
   $('f-rate-hour').value = rates.perHour;
+  $('f-ship-flat').value = shipping.flat == null ? '' : shipping.flat;
+  $('f-ship-free').value = shipping.freeAbove || '';
 
   syncRanges();
 
@@ -340,15 +348,32 @@ function wireControls() {
     requote();
   });
 
+  // Where it ships to changes no geometry, so none of these re-slice.
+  $('f-zone').addEventListener('change', () => { view.zone = $('f-zone').value; save(); showQuote(); });
+
   for (const [id, key] of [['f-rate-base', 'base'], ['f-rate-gram', 'perGram'], ['f-rate-hour', 'perHour']]) {
     $(id).addEventListener('input', () => {
       const value = Number($(id).value);
       rates[key] = Number.isFinite(value) && value >= 0 ? value : RATES[key];
       save();
-      // Only the arithmetic changes, so there is nothing to re-slice.
       showQuote();
     });
   }
+
+  $('f-ship-flat').addEventListener('input', () => {
+    const raw = $('f-ship-flat').value.trim();
+    const value = Number(raw);
+    shipping.flat = raw !== '' && Number.isFinite(value) && value >= 0 ? value : null;
+    save();
+    showQuote();
+  });
+
+  $('f-ship-free').addEventListener('input', () => {
+    const value = Number($('f-ship-free').value);
+    shipping.freeAbove = Number.isFinite(value) && value > 0 ? value : 0;
+    save();
+    showQuote();
+  });
 
   $('btn-reset').addEventListener('click', () => {
     spec = { ...DEFAULTS };
@@ -430,12 +455,12 @@ let quotePending = 0;
 
 function requote() {
   if (!current) return;
-  quote = null;
+  print = null;
   $('q-busy').hidden = false;
   clearTimeout(quotePending);
   quotePending = setTimeout(() => {
     if (!current) return;
-    quote = quotePrint(current.positions, { profile: view.profile, rates });
+    print = slicePrint(current.positions, { profile: view.profile });
     $('q-busy').hidden = true;
     showQuote();
     // The host page's price waits on the slice, not on the mesh.
@@ -444,19 +469,46 @@ function requote() {
 }
 
 function showQuote() {
-  if (!quote) {
-    for (const id of ['q-filament', 'q-time', 'q-layers', 'q-total']) $(id).textContent = '—';
+  if (!print) {
+    for (const id of ['q-filament', 'q-time', 'q-layers', 'q-goods', 'q-ship', 'q-total']) {
+      $(id).textContent = '—';
+    }
+    $('q-parcel').textContent = '';
     return;
   }
-  // Re-price without re-slicing: the rates are arithmetic on top of the slice.
-  const total = rates.base + quote.grams * rates.perGram + quote.hours * rates.perHour;
+
+  // Re-price without re-slicing. The rates, the destination and the packaging
+  // are all arithmetic on top of the slice, and the slice is the expensive bit.
+  const quote = priceOf(print, {
+    rates,
+    shipping: {
+      zone: view.zone,
+      freeAbove: shipping.freeAbove,
+      ...(shipping.flat != null ? { flat: shipping.flat } : {}),
+    },
+  });
+
   const hours = Math.floor(quote.hours);
   const minutes = Math.round((quote.hours - hours) * 60);
 
   $('q-filament').textContent = `${quote.grams.toFixed(0)} g · ${quote.metres.toFixed(1)} m`;
   $('q-time').textContent = hours ? `${hours} h ${minutes} min` : `${minutes} min`;
   $('q-layers').textContent = `${quote.layers} · ${quote.fill}% maciço`;
-  $('q-total').textContent = `${total.toFixed(2)} ${rates.currency}`;
+  $('q-goods').textContent = `${quote.goods.toFixed(2)} ${quote.currency}`;
+
+  const ship = quote.shipping;
+  $('q-ship-label').textContent = shipping.flat != null ? 'Envio (fixo)' : 'Envio';
+  $('q-ship').textContent = ship.free
+    ? 'grátis'
+    : `${ship.price.toFixed(2)} ${quote.currency}`;
+  $('q-total').innerHTML = `<strong>${quote.total.toFixed(2)} ${quote.currency}</strong>`;
+
+  const p = ship.parcel;
+  $('q-parcel').textContent = view.zone === 'pickup'
+    ? 'Levantamento — sem custo de envio.'
+    : `Caixa ${(p.lengthMm / 10).toFixed(0)} × ${(p.widthMm / 10).toFixed(0)} × ` +
+      `${(p.heightMm / 10).toFixed(0)} cm · ${p.billedKg.toFixed(2)} kg facturados ` +
+      `${p.billedBy === 'size' ? 'pelo volume — a placa é leve mas grande' : 'pelo peso'}.`;
 }
 
 function stats() {
@@ -654,7 +706,7 @@ function snapshot() {
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ spec, view, rates }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ spec, view, rates, shipping }));
   } catch {
     // A full or disabled store is not worth interrupting anyone over.
   }
@@ -670,6 +722,8 @@ function restore() {
     if (saved.view) view = { ...view, ...saved.view };
     if (!PROFILES[view.profile]) view.profile = DEFAULT_PROFILE;
     if (saved.rates) rates = { ...rates, ...saved.rates };
+    if (saved.shipping) shipping = { ...shipping, ...saved.shipping };
+    if (!ZONES.some((z) => z.id === view.zone)) view.zone = DEFAULT_ZONE;
   } catch {
     spec = { ...DEFAULTS };
   }
@@ -716,6 +770,7 @@ window.LegoPlate = {
       size: current.size,
       studs: current.studs.length,
       profile: view.profile,
+      zone: view.zone,
       previewPng: canvas.toDataURL('image/png'),
     };
   },
@@ -758,8 +813,8 @@ function announce() {
     studs: current.studs.length,
     // The weight comes from the slice, so a host page showing it beside the
     // preview shows the same number the backend would quote.
-    grams: quote ? Math.round(quote.grams) : null,
-    hours: quote ? quote.hours : null,
+    grams: print ? Math.round(print.grams) : null,
+    hours: print ? print.hours : null,
   }, '*');
 }
 
