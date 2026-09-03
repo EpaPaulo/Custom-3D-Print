@@ -53,11 +53,11 @@ function render(p) {
       <a href="collection.html?c=${n.id}">${escapeHtml(n.title)}</a><span>/</span>
       <span>${escapeHtml(p.title)}</span>
     </div>
-    <div class="gallery-main" data-main>${art(p, { view: 0 })}</div>
+    <div class="gallery-main" data-main>${art(p, { view: 0, colour: p.colours[0].hex })}</div>
     <div class="gallery-thumbs" data-thumbs>
       ${[0, 1, 2].map((v) => `
         <button type="button" data-view="${v}" aria-pressed="${v === 0}"
-                aria-label="Vista ${v + 1}">${art(p, { view: v })}</button>`).join('')}
+                aria-label="Vista ${v + 1}">${art(p, { view: v, colour: p.colours[0].hex })}</button>`).join('')}
     </div>
   </div>
 

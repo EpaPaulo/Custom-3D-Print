@@ -29,10 +29,11 @@ export const NICHES = [
     short: 'LEGO',
     emoji: '🧱',
     tone: '#c9a227',
-    tagline: 'Expositores, separadores e placas com o teu nome.',
+    tagline: 'Placas base, expositores e separadores.',
     blurb:
-      'Compatível com tijolos de 8 mm. As placas de nome e os quadros de minifigura '
-      + 'são desenhados por si no gerador, tijolo a tijolo.',
+      'Construído sobre a grelha de 8 mm — a mesma dos tijolos, não a de uma cópia. '
+      + 'As placas base são desenhadas por si no gerador: forma, tamanho em pinos e '
+      + 'o ajuste do pino que as faz encaixar à primeira.',
   },
   {
     id: 'gaming',

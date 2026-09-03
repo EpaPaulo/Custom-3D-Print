@@ -114,6 +114,9 @@ export const artDataUri = (p, opts) => `data:image/svg+xml,${encodeURIComponent(
 
 export function card(p) {
   const n = niche(p.niche);
+  // The card shows the part in its default filament, which is what the product
+  // page opens on — so a red plate is red before the shopper touches anything.
+  const colour = p.colours[0].hex;
   const sale = p.compareAt && p.compareAt > p.price
     ? `<span class="card-sale">−${Math.round((1 - p.price / p.compareAt) * 100)}%</span>` : '';
   const badge = p.badge ? `<span class="card-badge">${escapeHtml(p.badge)}</span>` : '';
@@ -122,7 +125,7 @@ export function card(p) {
 
   return `
 <a class="card" href="product.html?p=${encodeURIComponent(p.handle)}" style="--tone:${n.tone}">
-  <div class="card-art">${art(p)}${badge}${sale}</div>
+  <div class="card-art">${art(p, { colour })}${badge}${sale}</div>
   <div class="card-body">
     <span class="card-kicker">${escapeHtml(n.short)}</span>
     <h3>${escapeHtml(p.title)}</h3>
