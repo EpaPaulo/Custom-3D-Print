@@ -250,9 +250,13 @@ export function zoneOptions(parcel, options = {}) {
  */
 export function priceOf(print, options = {}) {
   const rates = { ...RATES, ...options.rates };
-  const material = print.grams * rates.perGram;
-  const machine = print.hours * rates.perHour;
-  const goods = rates.base + material + machine;
+  // Each part rounded before they are added, so the breakdown a customer reads
+  // adds up to the total beside it. Summing first and rounding after leaves the
+  // two disagreeing by a cent, which is the same trap the basket lines avoid.
+  const base = round2(rates.base);
+  const material = round2(print.grams * rates.perGram);
+  const machine = round2(print.hours * rates.perHour);
+  const goods = round2(base + material + machine);
 
   const ship = { ...(options.shipping || {}) };
   const size = options.size || print.size || { x: 0, y: 0, z: 0 };
@@ -279,11 +283,11 @@ export function priceOf(print, options = {}) {
 
   return {
     currency: rates.currency,
-    base: round2(rates.base),
-    material: round2(material),
-    machine: round2(machine),
+    base,
+    material,
+    machine,
     // What the plate costs, before it goes anywhere.
-    goods: round2(goods),
+    goods,
     shipping,
     // What the customer pays.
     total: round2(delivered),

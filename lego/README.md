@@ -37,8 +37,10 @@ uses as nominal:
 | side clearance | 0.20 mm | 0.202 mm |
 
 A run of *n* studs measures `n × pitch − clearance`, so 28 × 25 comes to
-226.038 × 201.798 mm and the whole plate stands 3.131 mm tall — which is the
-supplied mesh to the micron. Setting the app to 28 × 25 at +1 % reproduces it.
+226.038 × 201.798 mm — the supplied mesh to the micron. The one figure the
+generator does not copy is the 1.3 mm slab: nothing thinner than 2 mm gets
+built (see *Dimensões* below), so its plates stand 3.838 mm rather than
+3.131 mm. Footprint, grid and stud are the reference's exactly.
 
 **The +1 % matters.** Printed at exactly nominal, FDM studs come out slightly
 oversized and grip too hard; +1 % is what the reference plate is printed at and
@@ -84,7 +86,11 @@ it is the one setting worth calibrating.
 
    Plate thickness is the exception and sits with the other dimensions: a
    thicker plate is stiffer and a thinner one cheaper, and a brick fits either
-   way.
+   way. It will not go below **2 mm**, though. LEGO's own baseplate is 1.3 mm,
+   but that is an injection moulding — 1.3 mm of FDM plastic over 200 mm is
+   floppy, lifts at the corners and arrives bent. So the generator's plates
+   stand 0.7 mm taller than the reference mesh, and nothing else about them
+   changes.
 4. **Descarregar STL** — millimetres, ready for the slicer.
 
 Your settings are kept in `localStorage`, so a refresh won't lose them.
@@ -278,7 +284,7 @@ way no formula predicts:
 
 | | solid volume | actually printed |
 |---|---|---|
-| 20 × 20 baseplate, 1.3 mm | 59 g | 49 g — 85 % |
+| 20 × 20 plate, 2 mm (the floor) | 82 g | 57 g — 69 % |
 | 20 × 20 plate, 6 mm thick | 212 g | 78 g — 37 % |
 
 Same footprint, and pricing the second by volume would overcharge by nearly

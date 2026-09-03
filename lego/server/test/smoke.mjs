@@ -18,7 +18,7 @@ process.env.ALLOWED_ORIGINS = 'https://shop.example.com';
 
 const { createApp } = await import('../src/server.js');
 const store = await import('../src/store.js');
-const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS } = await import('../../assets/js/plate.js');
+const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS, MIN_THICKNESS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
 const { slicePrint, PROFILES } = await import('../../assets/js/slice.js');
 const { priceOf, priceBasket, shippingFor, parcelFor, packParcel, shippingOptions, ZONES } = await import('../../assets/js/price.js');
@@ -193,11 +193,20 @@ await check('a bed-sized plate stays closed at the finest contour', () => {
 });
 
 await check('the reference baseplate reproduces to the tenth of a micron', () => {
+  // Footprint and grid are the compatibility claim, and they match the supplied
+  // mesh exactly: 28 x 25 studs at 8.08 mm, less the 0.202 mm clearance.
   const plate = buildPlate(REFERENCE);
   assert.equal(plate.studs.length, 700);
   assert.ok(Math.abs(plate.size.x - 226.038) < 1e-3, `width ${plate.size.x}`);
   assert.ok(Math.abs(plate.size.y - 201.798) < 1e-3, `depth ${plate.size.y}`);
-  assert.ok(Math.abs(plate.size.z - 3.131) < 1e-3, `height ${plate.size.z}`);
+
+  // Height deliberately does not: the reference is a 1.3 mm slab, and nothing
+  // below MIN_THICKNESS gets built any more, so the plate stands taller by the
+  // difference. The stud on top of it is still the reference's.
+  const studHeight = 1.8 * REFERENCE.scale;
+  assert.ok(Math.abs(plate.size.z - (MIN_THICKNESS * REFERENCE.scale + studHeight)) < 1e-3,
+    `height ${plate.size.z}`);
+  assert.ok(plate.size.z > 3.131, 'the thickness floor did not apply');
 });
 
 await check('hollow studs use less material than solid ones', () => {
@@ -239,16 +248,22 @@ await check('the dimensions that decide compatibility cannot be overridden', () 
   assert.ok(Math.abs(plate.size.x - 226.038) < 1e-3, `width ${plate.size.x}`);
   assert.equal(plate.studs.length, 700);
 
-  // Thickness is the exception: a real choice, and still settable.
+  // Thickness is the exception: a real choice, and still settable above the
+  // floor. Below it, a plate stops being rigid enough to sell.
   assert.equal(normaliseSpec({ thickness: 6 }).thickness, 6);
   assert.equal(buildPlate({ width: 8, depth: 8, thickness: 6 }).size.z > 6, true);
+  assert.equal(normaliseSpec({ thickness: 1.3 }).thickness, MIN_THICKNESS);
+  assert.equal(normaliseSpec({ thickness: 0.1 }).thickness, MIN_THICKNESS);
+  // Duplo's own slab is already thicker than the floor, so the floor leaves it
+  // alone rather than flattening every system to the same number.
+  assert.ok(normaliseSpec({ system: 'duplo' }).thickness > MIN_THICKNESS);
 });
 
 await check('out-of-range numbers are clamped, unknown names are refused', () => {
   const spec = normaliseSpec({ width: 9999, scale: 5, thickness: -3 });
   assert.equal(spec.width, 96);
   assert.equal(spec.scale, 1.06);
-  assert.equal(spec.thickness, 0.6);
+  assert.equal(spec.thickness, MIN_THICKNESS);
   assert.throws(() => normaliseSpec({ shape: 'dodecahedron' }), SpecError);
   assert.throws(() => normaliseSpec({ width: 96, depth: 96 }), SpecError);
 });
@@ -282,12 +297,13 @@ await check('a thick plate prints far lighter than its volume, a thin one does n
   // This is the whole reason for slicing. A thin baseplate is nearly all skin
   // and comes out near its solid weight; a thick one is mostly air, and pricing
   // it by volume would overcharge by a factor of two or more.
-  const thin = slicePrint(buildPlate({ width: 20, depth: 20, thickness: 1.3 }).positions);
+  const thin = slicePrint(buildPlate({ width: 20, depth: 20 }).positions);
   const thick = slicePrint(buildPlate({ width: 20, depth: 20, thickness: 6 }).positions);
 
   const fillOf = (p) => p.volumeMm3 / p.solidMm3;
-  assert.ok(fillOf(thin) > 0.75, `thin plate only ${(fillOf(thin) * 100).toFixed(0)}% filled`);
-  assert.ok(fillOf(thick) < 0.55, `thick plate ${(fillOf(thick) * 100).toFixed(0)}% filled`);
+  assert.ok(fillOf(thin) > 0.6, `thin plate only ${(fillOf(thin) * 100).toFixed(0)}% filled`);
+  assert.ok(fillOf(thick) < 0.45, `thick plate ${(fillOf(thick) * 100).toFixed(0)}% filled`);
+  assert.ok(fillOf(thin) > fillOf(thick) * 1.4, 'thickness barely changed how much is air');
   // And the thick one weighs nowhere near its volume ratio would suggest.
   assert.ok(thick.grams < thin.grams * 2.5, 'thick plate scaled like solid material');
 });
@@ -527,7 +543,7 @@ await check('POST /api/plates/stl serves a solid to an admin', async () => {
   const { triangles, size } = stlBounds(Buffer.from(await res.arrayBuffer()));
   assert.ok(triangles > 1000, `only ${triangles} triangles`);
   assert.ok(Math.abs(size[0] - 226.038) < 0.01, `width ${size[0]}`);
-  assert.ok(Math.abs(size[2] - 3.131) < 0.01, `height ${size[2]}`);
+  assert.ok(Math.abs(size[2] - (MIN_THICKNESS + 1.8) * 1.01) < 0.01, `height ${size[2]}`);
 });
 
 await check('POST /api/baskets prices a whole order in one box', async () => {

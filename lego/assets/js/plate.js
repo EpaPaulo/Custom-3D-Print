@@ -37,6 +37,8 @@ export const SYSTEMS = [
     clearance: 0.2,
     studDiameter: 4.85,
     studHeight: 1.8,
+    // LEGO's real baseplate slab. MIN_THICKNESS raises what actually gets
+    // built; this stays the figure the reference mesh was derived from.
     thickness: 1.3,
     studWall: 1,
   },
@@ -72,13 +74,27 @@ export const QUALITIES = {
   fine: { label: 'Fina — contornos suaves', chord: 0.2, studSegments: 32 },
 };
 
+/**
+ * The thinnest plate worth printing.
+ *
+ * LEGO's own baseplate is 1.3 mm, which is what the reference mesh measures and
+ * what the SYSTEMS table records — but that is an injection moulding, and
+ * 1.3 mm of FDM plastic over 200 mm is floppy, warps off the bed at the corners,
+ * and arrives bent. Two millimetres is the floor for something worth selling,
+ * so it overrides the system's own figure rather than the other way round.
+ *
+ * Nothing about compatibility changes: a brick fits a 2 mm plate exactly as it
+ * fits a 1.3 mm one, it just sits 0.7 mm higher.
+ */
+export const MIN_THICKNESS = 2;
+
 // Ceilings. A plate is cheap to generate but not free, and a spec arriving over
 // HTTP must not be able to ask for an unbounded mesh.
 export const LIMITS = {
   studs: 96,          // per side
   maxStuds: 6000,     // positions on the grid
   scale: [0.95, 1.06],
-  thickness: [0.6, 12],
+  thickness: [MIN_THICKNESS, 12],
   margin: [0, 4],
 };
 
@@ -166,7 +182,10 @@ export function normaliseSpec(input = {}) {
   spec.studWall = sys.studWall;
 
   // Thickness is the exception, and a real choice: a thicker plate is stiffer
-  // and a thinner one cheaper, and a brick fits either way.
+  // and a thinner one cheaper, and a brick fits either way. It still cannot go
+  // below MIN_THICKNESS, which is where a printed plate stops being rigid
+  // enough to sell — including when the system's own figure is thinner, as
+  // LEGO's 1.3 mm baseplate is.
   spec.thickness = clamp(num(input.thickness, sys.thickness), LIMITS.thickness);
 
   // Shape parameters. Read for every shape so switching shape and back does not
