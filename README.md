@@ -1,8 +1,11 @@
-# Personalizador de Capa Bimby TM7
+# Personalizador de Capa Bimby TM7 — FormCAT
 
 A browser app for personalising a 3D-printable **Thermomix TM7 display cover**.
 Add text and images, see them on the cover in a live 3D preview, then download
 the two print-ready STLs.
+
+It is one of **FormCAT**'s two design apps — the other builds LEGO-compatible
+plates, in `lego/` — and the shop that sells what they make is in `store/`.
 
 The cover prints **black** and the design prints **white**, flush with the
 surface. There is no relief: the colour change happens in the first few layers,
@@ -13,11 +16,19 @@ images anywhere. Drop it on GitHub Pages and it works.
 
 ## Using it
 
-1. **Modelo base**
-   - *Template TM7* (default) — the supplied `assets/model/tm7-cover.stl`,
-     253.4 × 172.4 × 10 mm. Its dimensions are what make it fit the machine, so
-     they are not adjustable and the mesh is never modified.
+1. **Modelo base** — which model you are personalising.
+   - *Capa do ecrã TM7* (default) — `assets/model/tm7-cover.stl`,
+     253.4 × 172.4 × 10 mm, personalised on its flat rectangular face.
+     Usable area 236 × 155 mm.
+   - *Base TM7 — disco* — `assets/model/tm7-base.stl`, Ø 205.9 × 30.1 mm,
+     personalised on its flat round face. Usable area Ø 202 mm.
    - *Medidas próprias* — the parametric generator, for any size you like.
+
+   A supplied model's dimensions are what make it fit the machine, so they are
+   not adjustable and the mesh is never modified. Models are fetched only when
+   picked and kept afterwards, so switching back is instant. `?model=<id>`
+   (`cover` or `base`) opens on a given one; otherwise the app reopens whatever
+   you used last.
 2. **Cor** — how deep the white runs into the cover, in millimetres. 0.6 mm is
    three layers at 0.2 mm, which is plenty for full opacity. Contour quality
    trades file size for how smooth the letter edges come out.
@@ -45,13 +56,30 @@ byte, normals and all. Nothing is re-tessellated, re-normalised or repaired, and
 the design never crosses the face plane outward — so what you print is
 dimensionally the file you supplied.
 
-The usable design area is 236 × 155 mm: the full face inset far enough to clear
-its 23.2 mm corner radius.
+### Finding the face, and the room on it
+
+Both models are personalised on their lowest Z plane — the one carrying
+downward-facing triangles. How much of it is usable follows from the outline:
+
+- **Rectangular face.** The full face, inset far enough at each side to clear
+  the corner arcs — r(1 − 1/√2) plus 2 mm. On the cover's 23.2 mm radius that
+  gives 236 × 155 mm.
+- **Round face.** A disc is the limiting case of a rounded rectangle: its
+  corner radius reaches half its own width, which is how the app recognises
+  one. Confining a design to the square inscribed in a disc would throw away a
+  third of the room, so the whole circle is offered instead — Ø 202 mm on the
+  base — and the design is cut to that circle as it is built. Layers are still
+  positioned in a square box around it; anything outside the circle is dropped
+  rather than allowed to run off the face.
+
+The cut lands where the contour crosses it, so it can sit up to half a grid
+cell outside the nominal radius. The 2 mm margin covers that with room to
+spare.
 
 Engraving is offered only in *medidas próprias*, because removing material
 would mean cutting into the template mesh rather than adding to it.
 
-### About the supplied template
+### About the supplied cover template
 
 Worth knowing, though it is left exactly as-is:
 
@@ -62,7 +90,8 @@ Worth knowing, though it is left exactly as-is:
   edges**, including a zero-thickness internal sheet at z = 1. It is closed
   (no open edges) and slices fine.
 
-The export inherits exactly these counts and adds none of its own.
+The export inherits exactly these counts and adds none of its own. The same
+holds for the base: its 60,702 records are copied through byte for byte.
 
 ### Images
 
@@ -101,8 +130,8 @@ fan triangulation of it is always valid. Walls are emitted only along the
 contour itself — never along a cell edge shared with a neighbour — which is what
 keeps the result closed.
 
-**Template mode** locates the outward face automatically: the lowest Z plane
-carrying downward triangles. Layer coordinates are the face as you look at it;
+**Model mode** locates the outward face automatically: the lowest Z plane
+carrying downward triangles, round or rectangular. Layer coordinates are the face as you look at it;
 since that face's normal points along −Z, mapping to world space mirrors X, and
 a reflection reverses winding, so every triangle is emitted with two vertices
 swapped to keep it facing outward.
@@ -117,17 +146,30 @@ achievable when the shape itself is manifold: regions that touch at a single
 point share a vertical edge once the design has thickness, and four faces meet
 there by construction.
 
+## The shop
+
+`store/` is a storefront around this configurator: seven niches (Bimby, LEGO,
+gaming, animals, kitchen & WC, drones, ergonomics), a catalogue, product pages,
+a cart and a stub checkout. The Bimby and LEGO products are personalised — their
+buy button stays disabled until the customer has designed the part, and pressing
+*Personalizar* opens this configurator in `?shop=1` mode (or the brick-plate
+generator) over the page.
+
+It is static, needs no backend, and is served alongside this app:
+<http://localhost:8099/store/>. See `store/README.md`.
+
 ## Layout
 
 ```
 index.html                    markup + import map
 assets/css/style.css
 assets/js/geom.js             rounded rect, Coons patch, mesh assembly
-assets/js/template.js         STL parsing, face detection, stamp slab
+assets/js/template.js         STL parsing, face detection, design inlay
 assets/js/stamp.js            text/image layers -> grayscale mask
 assets/js/stl.js              binary STL writer
-assets/js/app.js              viewer, UI, export
-assets/model/tm7-cover.stl    the supplied template, unmodified
+assets/js/app.js              viewer, UI, model registry, export
+assets/model/tm7-cover.stl    the TM7 display cover, unmodified
+assets/model/tm7-base.stl     the round TM7 base, unmodified
 tools/build-artifact.mjs      single-file build for publishing
 vendor/                       three.js r160 (vendored, no CDN)
 ```
@@ -139,13 +181,15 @@ parameters.
 ## Single-file build
 
 `npm run artifact` bundles the whole thing into one self-contained HTML file
-under `dist/` — three.js, the app, the stylesheet and the template STL all
+under `dist/` — three.js, the app, the stylesheet and every model STL all
 inlined, no external requests at all. It is what gets published as a Claude
 Artifact, and it also works straight from `file://`.
 
 Nothing in `assets/` changes to make that build work; the two differences live
-in `tools/build-artifact.mjs`. `fetch` is shimmed to answer the template
-request from the embedded copy, and the STL buttons are hidden because the
+in `tools/build-artifact.mjs`. `fetch` is shimmed to answer model requests
+from the embedded copies (decoded only when a model is picked, so opening the
+page pays only for the one it starts on), and the STL buttons are hidden
+because the
 artifact viewer's save allowlist has no `.stl` entry — it offers the preview
 PNG instead. The build fails rather than publishing if the page ends up
 referencing another origin, since the artifact CSP would block it.
@@ -163,11 +207,19 @@ python3 -m http.server 8099
 
 Then open <http://localhost:8099/>.
 
+## Other apps in this repository
+
+`lego/` is a separate app: a generator for 3D-printable baseplates compatible
+with LEGO, where you pick a shape and a size in studs and it builds the STL. It
+has its own page, its own geometry and its own order backend, and shares nothing
+with this one but the vendored copy of three.js. See `lego/README.md`; once
+Pages is on it is served at `/lego/`.
+
 ## Publishing to GitHub Pages
 
 **Settings → Pages → Source: _Deploy from a branch_ → `main` → `/ (root)` → Save.**
 
-The site is then served at `https://epapaulo.github.io/epa_site/`, and every
+The site is then served at `https://epapaulo.github.io/Custom-3D-Print/`, and every
 push to `main` republishes it. There is no build step, so no workflow is
 needed; `.nojekyll` is present so the asset folders are served untouched.
 

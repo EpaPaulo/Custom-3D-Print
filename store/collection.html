@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo — FormCAT</title>
+<link rel="stylesheet" href="assets/store.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+</head>
+<body>
+
+<div class="demo-banner">
+  <strong>Loja de demonstração.</strong>
+  Serve para testar a experiência de compra — o carrinho é local e não há pagamentos.
+</div>
+
+<header class="site-header" data-header></header>
+
+<div class="collection-head" data-head></div>
+
+<main class="wrap">
+  <div class="toolbar">
+    <span class="count" data-count></span>
+    <select data-sort aria-label="Ordenar">
+      <option value="rel">Em destaque</option>
+      <option value="asc">Preço: mais barato primeiro</option>
+      <option value="desc">Preço: mais caro primeiro</option>
+      <option value="rating">Melhor avaliados</option>
+    </select>
+  </div>
+  <div class="grid" data-grid></div>
+</main>
+
+<footer class="site-footer" data-footer></footer>
+
+<script type="module" src="assets/collection.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FormCAT — peças feitas à sua medida</title>
+<meta name="description" content="Loja de peças impressas em 3D: Bimby, LEGO, gaming, animais, cozinha e WC, drones e ergonomia. Capas Bimby e placas de tijolos personalizadas por si.">
+<link rel="stylesheet" href="assets/store.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+</head>
+<body>
+
+<div class="demo-banner">
+  <strong>Loja de demonstração.</strong>
+  Serve para testar a experiência de compra — o carrinho é local e não há pagamentos.
+</div>
+
+<header class="site-header" data-header></header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Peças impressas em 3D que já deviam existir.</h1>
+    <p>
+      Sete categorias, dezenas de peças feitas por encomenda — e, onde faz sentido,
+      desenhadas por si: a capa da Bimby e as placas de tijolos saem do gerador com
+      o seu nome, o seu logótipo, a sua cor.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary btn-lg" href="#categorias">Ver categorias</a>
+      <a class="btn btn-lg" href="collection.html?perso=1">Peças personalizáveis</a>
+    </div>
+    <div class="hero-marks">
+      <span data-check>Impressão em Portugal</span>
+      <span data-check>Pré-visualização 3D antes de comprar</span>
+      <span data-check>Expedição em 3–5 dias úteis</span>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="categorias">
+  <div class="wrap">
+    <div class="band-head">
+      <div>
+        <h2>Escolha a sua área</h2>
+        <p>Cada categoria é um problema diferente. Comece pela sua.</p>
+      </div>
+    </div>
+    <div class="niches" data-niches></div>
+  </div>
+</section>
+
+<section class="band soft">
+  <div class="wrap">
+    <div class="band-head">
+      <div>
+        <h2>Personalizáveis</h2>
+        <p>Estas abrem o gerador: escreve, vê em 3D, compra. O resto do catálogo vende-se como está.</p>
+      </div>
+      <a href="collection.html?perso=1">Ver todas →</a>
+    </div>
+    <div class="grid" data-perso></div>
+  </div>
+</section>
+
+<section class="band" id="como">
+  <div class="wrap">
+    <div class="band-head"><div><h2>Como funciona</h2></div></div>
+    <div class="steps">
+      <div class="step-card">
+        <b>Passo 1</b>
+        <h3>Escolhe a peça</h3>
+        <p>Categoria, modelo e cor do filamento. As medidas de cada peça estão na ficha.</p>
+      </div>
+      <div class="step-card">
+        <b>Passo 2</b>
+        <h3>Personaliza, se quiser</h3>
+        <p>Nas peças personalizáveis abre-se o gerador. O que vê em 3D é o que vai ser impresso.</p>
+      </div>
+      <div class="step-card">
+        <b>Passo 3</b>
+        <h3>Nós revemos</h3>
+        <p>Cada desenho passa por uma pessoa antes de ir para a impressora. Depois é impresso e enviado.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band soft">
+  <div class="wrap">
+    <div class="band-head">
+      <div><h2>Mais vendidos</h2><p>O que sai desta oficina todas as semanas.</p></div>
+      <a href="collection.html">Ver o catálogo →</a>
+    </div>
+    <div class="grid" data-featured></div>
+  </div>
+</section>
+
+<section class="band" id="materiais">
+  <div class="wrap">
+    <div class="band-head"><div><h2>Materiais e prazos</h2></div></div>
+    <div class="steps">
+      <div class="step-card">
+        <b>PLA</b><h3>Peças de interior</h3>
+        <p>Rígido e estável. Expositores, organizadores, suportes de secretária.</p>
+      </div>
+      <div class="step-card">
+        <b>PETG</b><h3>Água e calor</h3>
+        <p>Cozinha, WC e animais. Aguenta lavagens e temperaturas mais altas.</p>
+      </div>
+      <div class="step-card">
+        <b>TPU</b><h3>Onde tem de ceder</h3>
+        <p>Apoios de pulso, vedantes e amortecimento. Flexível e lavável.</p>
+      </div>
+      <div class="step-card" id="envios">
+        <b>Envios</b><h3>3–5 dias úteis</h3>
+        <p>Feito por encomenda. Peças personalizadas esperam pela revisão do desenho.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer" data-footer></footer>
+
+<script type="module" src="assets/home.js"></script>
+</body>
+</html>

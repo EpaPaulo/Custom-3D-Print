@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FormCAT — Gerador de placas compatíveis LEGO</title>
+<meta name="description" content="Gere placas de base compatíveis com LEGO à medida: escolha a forma, as dimensões em pinos e descarregue o STL pronto a imprimir.">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "../vendor/OrbitControls.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="wordmark" href="../store/index.html">Form<span>CAT</span></a>
+  <h1>Gerador de placas compatíveis LEGO</h1>
+  <div class="topbar-actions">
+    <button id="btn-snapshot" class="btn btn-ghost" type="button">Guardar imagem</button>
+    <button id="btn-stl" class="btn btn-primary" type="button">Descarregar STL</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <aside class="panel" id="panel">
+
+    <section class="group">
+      <h2>Forma</h2>
+      <div class="shapes" id="shapes"></div>
+
+      <div class="field" id="f-char-field" hidden>
+        <label for="f-char">Carácter</label>
+        <input type="text" id="f-char" maxlength="1" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" inputmode="text" value="A">
+      </div>
+
+      <div class="field" id="f-font-field" hidden>
+        <label for="f-font">Tipo de letra</label>
+        <select id="f-font"></select>
+      </div>
+
+      <p class="note" id="char-note" hidden>Uma letra A–Z ou um algarismo 0–9.</p>
+
+      <div class="field" id="f-corner-field" hidden>
+        <label for="f-corner">Raio dos cantos <output id="o-corner"></output></label>
+        <input type="range" id="f-corner" min="0" max="60" step="0.5" value="0">
+      </div>
+
+      <div class="field" id="f-sides-field" hidden>
+        <label for="f-sides">Número de lados <output id="o-sides"></output></label>
+        <input type="range" id="f-sides" min="3" max="16" step="1" value="6">
+      </div>
+
+      <div class="field" id="f-points-field" hidden>
+        <label for="f-points">Pontas <output id="o-points"></output></label>
+        <input type="range" id="f-points" min="3" max="16" step="1" value="5">
+      </div>
+
+      <div class="field" id="f-inner-field" hidden>
+        <label for="f-inner">Profundidade das pontas <output id="o-inner"></output></label>
+        <input type="range" id="f-inner" min="0.2" max="0.9" step="0.01" value="0.5">
+      </div>
+
+      <div class="field" id="f-rotation-field" hidden>
+        <label for="f-rotation">Rotação <output id="o-rotation"></output></label>
+        <input type="range" id="f-rotation" min="-180" max="180" step="1" value="0">
+      </div>
+
+      <div class="field" id="f-arm-field" hidden>
+        <label for="f-arm">Largura dos braços <output id="o-arm"></output></label>
+        <input type="range" id="f-arm" min="1" max="40" step="1" value="5">
+      </div>
+
+      <div class="field" id="f-armx-field" hidden>
+        <label for="f-armx">Largura da perna <output id="o-armx"></output></label>
+        <input type="range" id="f-armx" min="1" max="40" step="1" value="6">
+      </div>
+
+      <div class="field" id="f-army-field" hidden>
+        <label for="f-army">Altura do pé <output id="o-army"></output></label>
+        <input type="range" id="f-army" min="1" max="40" step="1" value="6">
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Dimensões</h2>
+
+      <div class="field" id="width-field">
+        <label for="f-width">Largura <output id="o-width"></output></label>
+        <input type="range" id="f-width" min="1" max="96" step="1" value="28">
+      </div>
+
+      <div class="field">
+        <label for="f-depth" id="depth-label">Profundidade <output id="o-depth"></output></label>
+        <input type="range" id="f-depth" min="1" max="96" step="1" value="25">
+      </div>
+
+      <div class="field">
+        <label for="f-thickness">Espessura da placa <output id="o-thickness"></output></label>
+        <input type="range" id="f-thickness" min="2" max="12" step="0.1" value="2">
+      </div>
+
+      <p class="note" id="fit-note"></p>
+
+      <div class="field" style="margin-top:12px">
+        <label for="f-bed">Área de impressão</label>
+        <select id="f-bed"></select>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Pinos</h2>
+
+      <div class="field">
+        <label for="f-system">Sistema</label>
+        <select id="f-system"></select>
+      </div>
+
+      <div class="field">
+        <label for="f-pattern">Distribuição</label>
+        <select id="f-pattern"></select>
+      </div>
+
+      <div class="field">
+        <label for="f-studtrim">Ajuste do pino <output id="o-studtrim"></output></label>
+        <input type="range" id="f-studtrim" min="-0.4" max="0.2" step="0.01" value="-0.1">
+      </div>
+      <p class="note">
+        Quanto se tira ao diâmetro do pino. A impressora deposita um cordão que
+        incha, por isso um pino desenhado nos 4.8 mm exatos sai com quase 4.9 e
+        não entra na peça. Se ficar solto aproxime de 0; se ficar apertado
+        continue a descer. É o único número a calibrar — a grelha não se mexe.
+      </p>
+
+      <div class="field" style="margin-top:12px">
+        <label class="check"><input type="checkbox" id="f-hollow"> Pinos ocos</label>
+      </div>
+      <p class="note">Gastam menos filamento e a parede fina agarra melhor a peça de cima.</p>
+
+      <p class="note">
+        O passo da grelha, o pino e a folga lateral vêm do sistema escolhido —
+        são o que faz a placa encaixar, por isso não se mexem. Para ajustar o
+        aperto use o ajuste de encaixe acima.
+      </p>
+
+    </section>
+
+    <section class="group">
+      <h2>Pré-visualização</h2>
+
+      <div class="field">
+        <label>Cor</label>
+        <div class="swatches" id="swatches"></div>
+      </div>
+
+      <div class="field">
+        <label for="f-quality">Qualidade do contorno</label>
+        <select id="f-quality"></select>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Resultado</h2>
+      <dl class="stats">
+        <div><dt>Dimensões</dt><dd id="s-dims">—</dd></div>
+        <div><dt>Pinos</dt><dd id="s-studs">—</dd></div>
+        <div><dt>Triângulos</dt><dd id="s-tris">—</dd></div>
+        <div><dt>Ficheiro</dt><dd id="s-size">—</dd></div>
+      </dl>
+      <p class="warn" id="warn" hidden></p>
+      <button id="btn-stl-2" class="btn btn-primary btn-block" type="button">Descarregar STL</button>
+      <button id="btn-reset" class="btn btn-ghost btn-block" type="button">Repor tudo</button>
+      <p class="note">
+        Imprima com a face dos pinos para cima, sem suportes. Uma primeira
+        camada bem calibrada é o que decide se a placa encaixa.
+      </p>
+    </section>
+
+    <section class="group" id="quote-group">
+      <div class="group-head">
+        <h2>Orçamento</h2>
+        <span class="who" id="q-busy" hidden>a calcular…</span>
+      </div>
+
+      <div class="field">
+        <label for="f-profile">Perfil de impressão</label>
+        <select id="f-profile"></select>
+      </div>
+
+      <dl class="stats">
+        <div><dt>Filamento</dt><dd id="q-filament">—</dd></div>
+        <div><dt>Tempo de impressão</dt><dd id="q-time">—</dd></div>
+        <div><dt>Camadas</dt><dd id="q-layers">—</dd></div>
+        <div><dt>Peça</dt><dd id="q-goods">—</dd></div>
+      </dl>
+
+      <div class="field" style="margin-top:12px">
+        <label for="f-zone">Envio</label>
+        <select id="f-zone"></select>
+      </div>
+
+      <dl class="stats">
+        <div><dt id="q-ship-label">Envio</dt><dd id="q-ship">—</dd></div>
+        <div><dt><strong>Total</strong></dt><dd id="q-total"><strong>—</strong></dd></div>
+      </dl>
+      <p class="note" id="q-parcel"></p>
+
+      <p class="note" id="q-note">
+        Fatiado a sério: a peça é cortada camada a camada para contar o que sai
+        mesmo do bico, e não o volume da malha.
+      </p>
+
+      <details class="advanced">
+        <summary>Tarifas</summary>
+        <div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-rate-base">Taxa base</label>
+              <input type="number" id="f-rate-base" min="0" step="0.5">
+            </div>
+            <div class="field">
+              <label for="f-rate-gram">Por grama</label>
+              <input type="number" id="f-rate-gram" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-rate-hour">Por hora de máquina</label>
+            <input type="number" id="f-rate-hour" min="0" step="0.1">
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-ship-flat">Envio fixo</label>
+              <input type="number" id="f-ship-flat" min="0" step="0.5" placeholder="por zona">
+            </div>
+            <div class="field">
+              <label for="f-ship-free">Grátis acima de</label>
+              <input type="number" id="f-ship-free" min="0" step="5" placeholder="nunca">
+            </div>
+          </div>
+          <p class="note">
+            Só neste navegador. Numa encomenda quem manda são as tarifas do
+            servidor.
+          </p>
+        </div>
+      </details>
+    </section>
+
+  </aside>
+
+  <div class="viewport" id="viewport">
+    <canvas id="canvas"></canvas>
+    <div class="viewport-hint" id="hint">Arraste para rodar · roda do rato para ampliar</div>
+    <div class="viewport-badge" id="busy" hidden>a recalcular…</div>
+    <div class="viewport-tools">
+      <button type="button" class="btn btn-sm" id="btn-view-top">Topo</button>
+      <button type="button" class="btn btn-sm" id="btn-view-iso">Perspetiva</button>
+      <button type="button" class="btn btn-sm" id="btn-view-front">Frente</button>
+      <button type="button" class="btn btn-sm" id="btn-wire">Malha</button>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

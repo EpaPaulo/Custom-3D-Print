@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Placa personalizada — FormCAT (demonstração)</title>
+<style>
+  :root { --line:#e3e6ea; --muted:#6b7480; --accent:#f5a524; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#fff; color:#14181d;
+    font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1120px; margin:0 auto; padding:28px 20px 60px; }
+  .product { display:grid; grid-template-columns:1.5fr 1fr; gap:32px; align-items:start; }
+  @media (max-width:900px) { .product { grid-template-columns:1fr; } }
+  iframe { width:100%; height:620px; border:1px solid var(--line); border-radius:12px; background:#0f1216; }
+  h1 { font-size:26px; margin:0 0 6px; }
+  .price { font-size:26px; font-weight:600; margin:14px 0 4px; }
+  .price small { font-size:14px; color:var(--muted); font-weight:400; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:2px 14px; margin:16px 0; font-size:14px; }
+  dt { color:var(--muted); }
+  dd { margin:0; font-variant-numeric:tabular-nums; }
+  button { width:100%; padding:13px; font:inherit; font-weight:600; cursor:pointer;
+    background:var(--accent); color:#1a1204; border:none; border-radius:10px; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .msg { margin-top:12px; font-size:14px; min-height:1.4em; }
+  .msg.err { color:#c62828; }
+  .msg.ok { color:#1b7f3b; }
+  .setup { margin-top:26px; padding:14px 16px; border:1px dashed var(--line); border-radius:10px;
+    font-size:13px; color:var(--muted); }
+  .setup label { display:block; margin-bottom:8px; color:#14181d; }
+  .setup input { width:100%; padding:7px 9px; font:inherit; font-size:13px;
+    border:1px solid var(--line); border-radius:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="product">
+    <div>
+      <!-- ?shop=1 hides the STL download: in a shop the file is the product. -->
+      <iframe id="frame" src="../index.html?shop=1" title="Configurador de placas"></iframe>
+    </div>
+
+    <div>
+      <h1>Placa de base à medida</h1>
+      <p style="color:var(--muted);margin:0">
+        Escolha a forma e o tamanho. Imprimimos e enviamos.
+      </p>
+
+      <p class="price" id="price">—</p>
+      <dl>
+        <div style="display:contents"><dt>Forma</dt><dd id="d-shape">—</dd></div>
+        <div style="display:contents"><dt>Grelha</dt><dd id="d-grid">—</dd></div>
+        <div style="display:contents"><dt>Dimensões</dt><dd id="d-size">—</dd></div>
+        <div style="display:contents"><dt>Pinos</dt><dd id="d-studs">—</dd></div>
+        <div style="display:contents"><dt>Peça</dt><dd id="d-goods">—</dd></div>
+        <div style="display:contents"><dt>Envio</dt><dd id="d-ship">—</dd></div>
+      </dl>
+
+      <label for="zone" style="display:block;font-size:14px;color:var(--muted);margin-bottom:6px">
+        Enviar para
+      </label>
+      <select id="zone" style="width:100%;padding:9px;font:inherit;font-size:14px;
+        border:1px solid var(--line);border-radius:8px;margin-bottom:14px"></select>
+
+      <button id="add" disabled>Adicionar ao carrinho</button>
+      <p class="msg" id="msg"></p>
+
+      <div class="setup">
+        <label for="api">Backend de encomendas</label>
+        <input id="api" value="http://localhost:3100">
+        <p style="margin:10px 0 0">
+          Esta página é só uma demonstração: não há Shopify por trás, por isso o
+          passo <code>/cart/add.js</code> é simulado. O desenho é mesmo gravado
+          no backend e aparece na consola em <code>/admin</code>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { quotePlate, BridgeError } from './configurator-bridge.js';
+
+const $ = (id) => document.getElementById(id);
+let latest = null;
+let timer = 0;
+
+function say(text, kind = '') {
+  $('msg').className = 'msg ' + kind;
+  $('msg').textContent = text;
+}
+
+// The configurator announces every rebuild. Quoting on each one would hammer
+// the backend while a slider is moving, so the quote trails the preview.
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (!msg || msg.type !== 'plate:changed') return;
+  latest = msg;
+
+  $('d-shape').textContent = msg.shape;
+  $('d-grid').textContent = `${msg.width} × ${msg.depth} pinos`;
+  $('d-size').textContent = `${msg.size.x.toFixed(1)} × ${msg.size.y.toFixed(1)} × ${msg.size.z.toFixed(2)} mm`;
+  $('d-studs').textContent = msg.studs;
+  $('add').disabled = false;
+
+  clearTimeout(timer);
+  timer = setTimeout(refreshQuote, 400);
+});
+
+async function refreshQuote() {
+  if (!latest) return;
+  try {
+    const frame = $('frame').contentWindow;
+    // Ask the configurator for the full spec rather than rebuilding it from
+    // the summary: the summary is for display, the spec is the truth.
+    const design = await ask(frame);
+    const quoted = await quotePlate($('api').value.trim(), design.spec, $('zone').value || undefined);
+    const q = quoted.quote;
+
+    // The zone list comes back priced with the quote, so filling the picker
+    // costs no extra request.
+    if (q.shippingOptions && !$('zone').options.length) {
+      for (const option of q.shippingOptions) {
+        const el = document.createElement('option');
+        el.value = option.zone;
+        el.textContent = option.label;
+        $('zone').appendChild(el);
+      }
+      $('zone').value = q.shipping.zone;
+    }
+    if (q.shippingOptions) {
+      for (const el of $('zone').options) {
+        const priced = q.shippingOptions.find((o) => o.zone === el.value);
+        if (priced) {
+          el.textContent = `${priced.label} — ${priced.free ? 'grátis' : priced.price.toFixed(2) + ' ' + q.currency}`;
+        }
+      }
+    }
+
+    $('price').innerHTML =
+      `${q.total.toFixed(2)} ${q.currency} ` +
+      `<small>· ${q.grams} g · ~${q.hours.toFixed(1)} h de impressão</small>`;
+    $('d-goods').textContent = `${q.goods.toFixed(2)} ${q.currency}`;
+    $('d-ship').textContent = q.shipping
+      ? (q.shipping.free ? 'grátis' : `${q.shipping.price.toFixed(2)} ${q.currency} · ${q.shipping.parcel.billedKg.toFixed(2)} kg`)
+      : '—';
+    say('');
+  } catch (err) {
+    $('price').textContent = '—';
+    $('d-goods').textContent = $('d-ship').textContent = '—';
+    say(`Sem orçamento: ${err.message}`, 'err');
+  }
+}
+
+function ask(target) {
+  return new Promise((resolve, reject) => {
+    const requestId = Math.random().toString(36).slice(2);
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', onMessage);
+      reject(new BridgeError('O configurador não respondeu.'));
+    }, 10000);
+    function onMessage(event) {
+      const msg = event.data;
+      if (!msg || msg.type !== 'plate:design' || msg.requestId !== requestId) return;
+      clearTimeout(timeout);
+      window.removeEventListener('message', onMessage);
+      msg.design ? resolve(msg.design) : reject(new BridgeError('Ainda não há placa.'));
+    }
+    window.addEventListener('message', onMessage);
+    target.postMessage({ type: 'plate:getDesign', requestId }, '*');
+  });
+}
+
+$('add').addEventListener('click', async () => {
+  $('add').disabled = true;
+  say('A guardar o desenho…');
+  try {
+    const design = await ask($('frame').contentWindow);
+    const api = $('api').value.trim().replace(/\/+$/, '');
+    const res = await fetch(`${api}/api/designs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec: design.spec, previewPng: design.previewPng, zone: $('zone').value || undefined }),
+    });
+    if (!res.ok) throw new BridgeError((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    const created = await res.json();
+    // A real theme would call addPlateToCart() from configurator-bridge.js,
+    // which does this and then posts the id to /cart/add.js.
+    say(`Desenho ${created.id} guardado — ${created.quote.total.toFixed(2)} ${created.quote.currency}.`, 'ok');
+  } catch (err) {
+    say(err.message, 'err');
+  } finally {
+    $('add').disabled = false;
+  }
+});
+
+$('api').addEventListener('change', refreshQuote);
+$('zone').addEventListener('change', refreshQuote);
+</script>
+</body>
+</html>

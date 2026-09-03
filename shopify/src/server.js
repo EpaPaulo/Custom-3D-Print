@@ -4,7 +4,8 @@ import express from 'express';
 import { config, assertRuntimeConfig } from './config.js';
 import * as store from './store.js';
 import {
-  renderDesignSTL, renderCoverSTL, templateInfo, decodeMask, RenderError,
+  renderDesignSTL, renderCoverSTL, templateInfo, modelsInfo, resolveModelId,
+  decodeMask, RenderError,
 } from './render.js';
 
 // Read once: it is a fixed asset, and a failure to find it should stop the
@@ -53,10 +54,23 @@ export function createApp() {
   api.use(cors);
   api.use(express.json({ limit: config.maxUploadBytes }));
 
-  api.get('/template', async (_req, res, next) => {
+  // Every model on offer, so a storefront can present them without hardcoding
+  // dimensions that only this side knows.
+  api.get('/models', async (_req, res, next) => {
     try {
-      res.json(await templateInfo());
+      res.json(await modelsInfo());
     } catch (err) { next(err); }
+  });
+
+  // One model's dimensions. Predates the second model, so it answers for the
+  // default one when asked without a ?model=.
+  api.get('/template', async (req, res, next) => {
+    try {
+      res.json(await templateInfo(req.query.model));
+    } catch (err) {
+      if (err instanceof RenderError) return res.status(404).json({ error: err.message });
+      next(err);
+    }
   });
 
   api.post('/designs', async (req, res, next) => {
@@ -65,6 +79,10 @@ export function createApp() {
       if (!design || typeof design !== 'object') {
         return res.status(400).json({ error: 'config is required' });
       }
+
+      // Which model this design belongs to. An id this shop cannot build is
+      // refused now rather than at fulfilment, when someone has already paid.
+      const model = resolveModelId(design.model);
 
       const mask = decodeBase64Png(maskPng, config.maxUploadBytes);
       if (!mask) return res.status(400).json({ error: 'maskPng is required' });
@@ -76,6 +94,7 @@ export function createApp() {
       const preview = decodeBase64Png(previewPng, config.maxPreviewBytes);
 
       const record = await store.putDesign({
+        model,
         colourDepth: design.colourDepth,
         cell: design.cell,
         // Kept for support and re-editing. Never used to build geometry.
@@ -99,7 +118,10 @@ export function createApp() {
     try {
       const d = await store.getDesign(req.params.id);
       if (!d) return res.status(404).json({ error: 'not found' });
-      res.json({ id: d.id, createdAt: d.createdAt, colourDepth: d.colourDepth, layers: d.layers });
+      res.json({
+        id: d.id, createdAt: d.createdAt, model: d.model ?? null,
+        colourDepth: d.colourDepth, layers: d.layers,
+      });
     } catch (err) { next(err); }
   });
 
@@ -128,9 +150,30 @@ export function createApp() {
   admin.use(requireAdmin);
   admin.use(express.json({ limit: '1mb' }));
 
+  // The queue carries each order's models along with it: an operator has to
+  // know which black body to pair a design with before they start a print, and
+  // the order itself only records design ids.
   admin.get('/queue', async (req, res, next) => {
     try {
-      res.json(await store.listOrders({ status: req.query.status }));
+      const orders = await store.listOrders({ status: req.query.status });
+      for (const order of orders) {
+        const ids = [];
+        for (const designId of order.designIds || []) {
+          const design = await store.getDesign(designId);
+          if (!design) continue;
+          let id;
+          try {
+            id = resolveModelId(design.model);
+          } catch {
+            // A design naming a model this shop no longer builds is a problem
+            // for that order, not a reason to withhold the whole queue.
+            id = String(design.model);
+          }
+          if (!ids.includes(id)) ids.push(id);
+        }
+        order.models = ids;
+      }
+      res.json(orders);
     } catch (err) { next(err); }
   });
 
@@ -146,17 +189,22 @@ export function createApp() {
     } catch (err) { next(err); }
   });
 
-  // The black cover. Identical for every order, so it is fetched once and kept
+  // The black body of one model — ?model= picks which, defaulting to the first.
+  // Identical for every order of that model, so it is fetched once and kept
   // rather than reissued per design.
-  admin.get('/cover.stl', async (_req, res, next) => {
+  admin.get('/cover.stl', async (req, res, next) => {
     try {
-      const { buffer, triangles } = await renderCoverSTL();
+      const { buffer, triangles, spec } = await renderCoverSTL(req.query.model);
       res
         .type('model/stl')
         .set('X-Triangle-Count', String(triangles))
-        .set('Content-Disposition', 'attachment; filename="capa-tm7-preto.stl"')
+        .set('X-Model-Id', spec.id)
+        .set('Content-Disposition', `attachment; filename="${spec.slug}-preto.stl"`)
         .send(Buffer.from(buffer));
-    } catch (err) { next(err); }
+    } catch (err) {
+      if (err instanceof RenderError) return res.status(404).json({ error: err.message });
+      next(err);
+    }
   });
 
   // The per-order print file: the white design body. Gated behind the admin
@@ -183,6 +231,9 @@ export function createApp() {
       res
         .type('model/stl')
         .set('X-Triangle-Count', String(triangles))
+        // The design alone does not say what it goes on; the header does, so a
+        // download that has left the console can still be paired up.
+        .set('X-Model-Id', resolveModelId(design.model))
         .set('Content-Disposition', `attachment; filename="desenho-${design.id}-branco.stl"`)
         .send(Buffer.from(buffer));
     } catch (err) {

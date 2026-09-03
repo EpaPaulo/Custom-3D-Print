@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Capa Personalizada TM7 — demonstração de loja</title>
+<title>Peças personalizadas TM7 — demonstração de loja</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
 <style>
   :root {
@@ -100,7 +100,7 @@
 </div>
 
 <header>
-  <div class="brand">epalfer<span>.</span>shop</div>
+  <div class="brand">Form<span>CAT</span></div>
   <nav><span>Loja</span><span>Sobre</span><span>Contacto</span><span>Carrinho (0)</span></nav>
 </header>
 
@@ -108,24 +108,20 @@
   <div class="product">
 
     <div class="stage">
-      <iframe data-cover-frame src="../../index.html?shop=1" title="Personalizador de capa"></iframe>
+      <iframe data-cover-frame src="../../index.html?shop=1" title="Personalizador"></iframe>
     </div>
 
     <div>
-      <h1>Capa personalizada para Bimby TM7</h1>
-      <p class="sub">Impressa em 3D por encomenda, com o seu texto ou logótipo em relevo.</p>
+      <h1 id="p-title">Capa do ecrã TM7</h1>
+      <p class="sub">Impressa em 3D por encomenda, com o seu texto ou logótipo a duas cores.</p>
 
-      <p class="price">29,90 €</p>
+      <p class="price" id="p-price">29,90 €</p>
       <p class="vat">IVA incluído. Envio calculado no checkout.</p>
 
       <div class="opt">
         <span>Cor</span>
-        <div class="swatches" id="colours">
-          <button class="swatch" aria-pressed="true"  data-variant="45210987654321"><i class="dot" style="background:#22262b"></i>Preto mate</button>
-          <button class="swatch" aria-pressed="false" data-variant="45210987654322"><i class="dot" style="background:#f2f2ef"></i>Branco</button>
-          <button class="swatch" aria-pressed="false" data-variant="45210987654323"><i class="dot" style="background:#9aa6b2"></i>Cinza pedra</button>
-          <button class="swatch" aria-pressed="false" data-variant="45210987654324"><i class="dot" style="background:#1c6fd4"></i>Azul</button>
-        </div>
+        <!-- Filled from PRODUCTS below; a real theme emits its own variants. -->
+        <div class="swatches" id="colours"></div>
       </div>
 
       <div class="opt">
@@ -133,13 +129,13 @@
         <input class="qty" type="number" id="qty" value="1" min="1" max="10">
       </div>
 
-      <button class="cta" data-cover-add data-variant-id="45210987654321" disabled>
+      <button class="cta" data-cover-add disabled>
         A carregar o personalizador…
       </button>
       <p class="err" data-cover-error></p>
 
       <div class="added" id="added">
-        <img id="added-img" alt="Pré-visualização da capa encomendada">
+        <img id="added-img" alt="Pré-visualização da peça encomendada">
         <div>
           <b>Adicionado ao carrinho</b>
           <code id="added-id"></code>
@@ -148,9 +144,9 @@
 
       <ul class="facts">
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
-            Encaixa no ecrã de 10" do TM7 — 253,4 × 172,4 mm.</li>
+            <span id="p-fit">Encaixa no ecrã de 10" do TM7.</span></li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
-            Relevo até 4 mm, em PLA ou PETG.</li>
+            Desenho a duas cores, até 4 mm de profundidade, em PLA ou PETG.</li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
             Cada desenho é revisto por nós antes de ir para a impressora.</li>
         <li><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5l4 4 8-9"/></svg>
@@ -170,12 +166,93 @@
 <script type="module">
   import { autoWire } from './configurator-bridge.js';
 
+  const params = new URLSearchParams(location.search);
+
   // Point this at your deployed backend.
-  const API_BASE = new URLSearchParams(location.search).get('api')
-    || 'http://localhost:3111';
+  const API_BASE = params.get('api') || 'http://localhost:3111';
+
+  // What Shopify hands a real theme: one product per model, with its own price
+  // and its own colour variants. None of it comes from the order backend —
+  // that side builds geometry, and a catalogue is not its business. In a real
+  // theme this is Liquid, and there is one product per page rather than a map.
+  //
+  // Variant ids are per product, so no two rows share one; the id is what goes
+  // to /cart/add.js, and the design id rides along beside it.
+  const PRODUCTS = {
+    cover: {
+      title: 'Capa do ecrã TM7',
+      fit: 'Encaixa no ecrã de 10" do TM7.',
+      price: '29,90 €',
+      variants: [
+        { id: '45210987654321', label: 'Preto mate', dot: '#22262b' },
+        { id: '45210987654322', label: 'Branco', dot: '#f2f2ef' },
+        { id: '45210987654323', label: 'Cinza pedra', dot: '#9aa6b2' },
+        { id: '45210987654324', label: 'Azul', dot: '#1c6fd4' },
+      ],
+    },
+    base: {
+      // Much the same material as the cover, but 30 mm tall against 10, so
+      // three times the layers and a far longer print. Priced accordingly —
+      // though what a part is worth is the merchant's call, not this file's.
+      title: 'Base TM7',
+      fit: 'Assenta sob a Bimby TM7.',
+      price: '44,90 €',
+      variants: [
+        { id: '45210987660001', label: 'Preto mate', dot: '#22262b' },
+        { id: '45210987660002', label: 'Branco', dot: '#f2f2ef' },
+        { id: '45210987660003', label: 'Cinza pedra', dot: '#9aa6b2' },
+      ],
+    },
+  };
+
+  // One product page sells one model, and it says so in the iframe URL. This
+  // demo takes the same ?model= so both products can be tried from one file;
+  // a real theme would hardcode it per product.
+  const MODEL = PRODUCTS[params.get('model')] ? params.get('model') : 'cover';
+  const product = PRODUCTS[MODEL];
+
+  const frame = document.querySelector('[data-cover-frame]');
+  frame.src = `../../index.html?shop=1&model=${encodeURIComponent(MODEL)}`;
 
   const cta = document.querySelector('[data-cover-add]');
   const qty = document.getElementById('qty');
+
+  document.title = `${product.title} — demonstração de loja`;
+  document.getElementById('p-title').textContent = product.title;
+  document.getElementById('p-fit').textContent = product.fit;
+  document.getElementById('p-price').textContent = product.price;
+
+  const colours = document.getElementById('colours');
+  product.variants.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.setAttribute('aria-pressed', String(i === 0));
+    b.dataset.variant = v.id;
+    const dot = document.createElement('i');
+    dot.className = 'dot';
+    dot.style.background = v.dot;
+    b.append(dot, v.label);
+    colours.append(b);
+  });
+  // The first swatch is the one shown as chosen, so it is the one to buy.
+  cta.dataset.variantId = product.variants[0].id;
+
+  const mm = (v) => String(Math.round(v));
+
+  // The measurements are the backend's to state: it measures the mesh, so the
+  // page never repeats dimensions that could drift out of step with the file.
+  // It needs this origin in ALLOWED_ORIGINS; without that the page keeps the
+  // copy it was written with, which is the right way for a demo to fail.
+  fetch(`${API_BASE}/api/template?model=${encodeURIComponent(MODEL)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((m) => {
+      if (!m) return;
+      document.getElementById('p-fit').textContent = m.round
+        ? `${product.fit} Disco liso de Ø ${mm(m.usableDiameter)} mm para personalizar.`
+        : `${product.fit} Área personalizável de ${mm(m.usableWidth)} × ${mm(m.usableHeight)} mm.`;
+    })
+    .catch(() => { /* the demo still works with the copy already on the page */ });
 
   // The configurator announces itself once it has something to show.
   window.addEventListener('message', (e) => {

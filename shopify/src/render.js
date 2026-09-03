@@ -7,30 +7,56 @@
 //     as the customer's browser had; when they differ, the print quietly stops
 //     matching the preview the customer approved. A bitmap cannot drift.
 //   - Safety. A mask is just a bounded greyscale image. The geometry is still
-//     built here, by our own code, from the fixed template — so a customer can
+//     built here, by our own code, from the fixed models — so a customer can
 //     never hand us arbitrary triangles to put on a printer.
+//
+// Every design names the model it was built on. That name picks the mesh, the
+// face, and the usable area the mask is measured against, so a design can only
+// ever be built on the model the customer actually saw.
 
 import { readFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
-import { config } from './config.js';
+import { config, defaultModelId, modelById } from './config.js';
 import {
   parseSTL, analyseFace, buildInlaySolid, buildExportSTL,
 } from '../../assets/js/template.js';
 import { buildSAT } from '../../assets/js/geom.js';
 
-let cached = null;
+export class RenderError extends Error {}
 
-export async function loadTemplate() {
-  if (cached) return cached;
-  const buf = await readFile(config.templatePath);
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-  const template = parseSTL(ab);
-  const face = analyseFace(template.positions);
-  cached = { template, face };
-  return cached;
+/**
+ * Which model a value names. Anything the registry does not know is refused
+ * rather than quietly built on the default: a design fulfilled on the wrong
+ * mesh would only show once someone had paid for it.
+ */
+export function resolveModelId(value) {
+  // Designs recorded before the second model existed carry no id at all.
+  if (value == null || value === '') return defaultModelId;
+  if (!modelById(value)) {
+    const known = config.models.map((m) => m.id).join(', ');
+    // Whatever came in is echoed back to say what was rejected, so bound it:
+    // the id arrives in a request body and an error is no place for an essay.
+    const shown = String(value).slice(0, 40);
+    throw new RenderError(`Unknown model "${shown}". This shop builds: ${known}.`);
+  }
+  return value;
 }
 
-export class RenderError extends Error {}
+// Meshes are a few megabytes each and never change, so each is parsed once and
+// kept. A shop that only ever sells one never pays for the other.
+const cache = new Map();
+
+export async function loadModel(id) {
+  const modelId = resolveModelId(id);
+  if (cache.has(modelId)) return cache.get(modelId);
+  const spec = modelById(modelId);
+  const buf = await readFile(spec.path);
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const template = parseSTL(ab);
+  const entry = { spec, template, face: analyseFace(template.positions) };
+  cache.set(modelId, entry);
+  return entry;
+}
 
 export function decodeMask(pngBuffer) {
   let png;
@@ -52,13 +78,13 @@ export function decodeMask(pngBuffer) {
 /**
  * Build the per-order print file: the white design body alone.
  *
- * The cover is identical for every order, so it is not reissued each time —
- * fetch it once from renderCoverSTL(). Load the two into the slicer as one
- * object with two parts and assign a filament to each; they share a coordinate
- * system, so they land aligned.
+ * The black body is identical for every order of a given model, so it is not
+ * reissued each time — fetch it once from renderCoverSTL(design.model). Load
+ * the two into the slicer as one object with two parts and assign a filament
+ * to each; they share a coordinate system, so they land aligned.
  */
 export async function renderDesignSTL(design, maskPng) {
-  const { template, face } = await loadTemplate();
+  const { spec, face } = await loadModel(design.model);
   const { data, w, h } = decodeMask(maskPng);
 
   // The mask is expected to cover exactly the usable design area. Checking the
@@ -85,17 +111,25 @@ export async function renderDesignSTL(design, maskPng) {
     sat: buildSAT(data, w, h),
   };
 
-  const surface = { z: face.z, cx: face.cx, cy: face.cy, dir: -1, mirror: true };
+  // `clip` is what holds a design inside a round face. The browser preview
+  // applies it, so leaving it out here would print something the customer
+  // never approved — artwork running off the edge of the disc.
+  const surface = {
+    z: face.z, cx: face.cx, cy: face.cy, dir: -1, mirror: true, clip: face.clip,
+  };
   const inlay = buildInlaySolid(surface, mask, colourDepth, cell);
   if (!inlay.length) throw new RenderError('Design is empty — nothing to print.');
 
-  return writeSTL(inlay, 'desenho tm7');
+  return writeSTL(inlay, `desenho ${spec.slug}`);
 }
 
-/** The black cover: the supplied template, copied through byte for byte. */
-export async function renderCoverSTL() {
-  const { template } = await loadTemplate();
-  return buildExportSTL(template.source, template.triangles, null, 'capa tm7');
+/** The black body: the supplied mesh, copied through byte for byte. */
+export async function renderCoverSTL(modelId) {
+  const { spec, template } = await loadModel(modelId);
+  const { buffer, triangles } = buildExportSTL(
+    template.source, template.triangles, null, spec.slug,
+  );
+  return { buffer, triangles, spec };
 }
 
 // A plain binary STL for geometry we generated ourselves.
@@ -135,16 +169,30 @@ function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, n));
 }
 
-export async function templateInfo() {
-  const { template, face } = await loadTemplate();
+export async function templateInfo(modelId) {
+  const { spec, template, face } = await loadModel(modelId);
   return {
+    id: spec.id,
+    label: spec.label,
+    // Names the files an operator downloads, so the console can match them.
+    slug: spec.slug,
     triangles: template.triangles,
     width: round(face.width),
     height: round(face.height),
+    thickness: round(face.thickness),
     cornerRadius: round(face.radius),
+    // A round face has no corners and no inscribed rectangle worth quoting:
+    // the usable area is the disc, and the two "sides" are its diameter.
+    round: face.round,
     usableWidth: round(face.safeWidth),
     usableHeight: round(face.safeHeight),
+    usableDiameter: face.round ? round(face.safeWidth) : null,
   };
+}
+
+/** Every model this shop can build, for a storefront picking between them. */
+export async function modelsInfo() {
+  return Promise.all(config.models.map((m) => templateInfo(m.id)));
 }
 
 const round = (v) => Math.round(v * 100) / 100;

@@ -5,8 +5,8 @@
   --line: #2a323d;
   --text: #e6edf3;
   --muted: #8b98a8;
-  --accent: #4da3ff;
-  --accent-2: #2b7fd4;
+  --accent: #f5a524;
+  --accent-2: #d98c12;
   --warn: #ffb454;
   --radius: 10px;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -14,10 +14,7 @@
 
 * { box-sizing: border-box; }
 
-html, body {
-  height: 100%;
-  margin: 0;
-}
+html, body { height: 100%; margin: 0; }
 
 body {
   background: var(--bg);
@@ -44,27 +41,17 @@ body {
 /* The shop's wordmark, so a generator opened on its own says whose it is and
    leads back to the catalogue. It goes with the rest of the bar when embedded:
    a host page carries its own. */
-.wordmark {
-  font-size: 16px;
-  font-weight: 750;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.wordmark span { color: var(--accent); }
+.wordmark { font-size: 16px; font-weight: 750; letter-spacing: -0.02em; color: var(--text); text-decoration: none; }
+/* The brand blue, not this app's amber: the wordmark has to look the same in
+   every app and in the shop, while --accent stays each app's own colour for
+   its controls. */
+.wordmark span { color: #4da3ff; }
 
 /* The app's own name reads as a subtitle beside it, not as a second brand. */
 .topbar h1 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--muted);
-  padding-left: 14px;
-  border-left: 1px solid var(--line);
+  margin: 0; font-size: 14px; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--muted); padding-left: 14px; border-left: 1px solid var(--line);
 }
-
 /* Two items became three when the wordmark arrived: space-between would push
    the app's name into the middle of the bar, away from the brand it belongs
    to. The name keeps to the wordmark; the actions keep to the right. */
@@ -128,10 +115,7 @@ body {
 
 /* ---------- groups ---------- */
 
-.group {
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--line);
-}
+.group { padding: 16px 18px; border-bottom: 1px solid var(--line); }
 
 .group h2 {
   margin: 0 0 12px;
@@ -151,7 +135,7 @@ body {
 }
 
 .group-head h2 { margin: 0; }
-.group-head-actions { display: flex; gap: 6px; }
+.group-head .who { color: var(--accent); font-size: 12px; }
 
 /* ---------- fields ---------- */
 
@@ -206,7 +190,6 @@ input[type=range]::-moz-range-thumb {
 
 input[type=text],
 input[type=number],
-textarea,
 select {
   width: 100%;
   background: var(--panel-2);
@@ -218,12 +201,7 @@ select {
   font-size: 13px;
 }
 
-textarea { resize: vertical; min-height: 62px; }
-
-input:focus, textarea:focus, select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
 
 label.check {
   display: flex;
@@ -232,39 +210,54 @@ label.check {
   font-size: 13px;
   color: var(--muted);
   cursor: pointer;
-  margin-bottom: 5px;
 }
 
 label.check input { width: auto; accent-color: var(--accent); }
 
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-/* ---------- segmented ---------- */
+/* ---------- shape picker ---------- */
 
-.seg {
+.shapes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.shapes button {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 2px 5px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 8px;
-  overflow: hidden;
-}
-
-.seg button {
-  flex: 1;
-  background: transparent;
-  border: none;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
-  padding: 7px 4px;
+  font-size: 10px;
   cursor: pointer;
 }
 
-.seg button.on {
-  background: var(--accent);
-  color: #06121f;
-  font-weight: 600;
+.shapes button svg { width: 26px; height: 26px; }
+.shapes button svg path, .shapes button svg circle { fill: currentColor; }
+.shapes button:hover { border-color: var(--accent); }
+.shapes button.on { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- colour swatches ---------- */
+
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.swatches button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
 }
+
+.swatches button.on { border-color: var(--text); }
 
 /* ---------- buttons ---------- */
 
@@ -287,73 +280,24 @@ label.check input { width: auto; accent-color: var(--accent); }
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06121f;
+  color: #1a1204;
   font-weight: 600;
 }
 
 .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
-
 .btn-block { display: block; width: 100%; margin-top: 8px; }
-
 .btn.on { border-color: var(--accent); color: var(--accent); }
+.btn[disabled] { opacity: .45; cursor: default; }
+.btn[disabled]:hover { border-color: var(--line); }
 
-/* ---------- layers ---------- */
+/* ---------- presets ---------- */
 
-.layers { list-style: none; margin: 0; padding: 0; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
 
-.layers li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 6px;
-  background: var(--panel-2);
-  cursor: pointer;
-}
+/* ---------- notes and stats ---------- */
 
-.layers li.sel { border-color: var(--accent); }
-
-.layers .lname {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-
-.layers .ico { opacity: .6; font-size: 12px; width: 16px; text-align: center; }
-
-.layers button {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 2px 4px;
-  font-size: 13px;
-  line-height: 1;
-  border-radius: 4px;
-}
-
-.layers button:hover { color: var(--text); background: rgba(255,255,255,.07); }
-
-.empty { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
-
-.warn {
-  color: var(--warn);
-  font-size: 12px;
-  margin: -4px 0 0;
-}
-
-.note {
-  color: var(--muted);
-  font-size: 12px;
-  margin: 8px 0 0;
-}
-
-/* ---------- stats ---------- */
+.warn { color: var(--warn); font-size: 12px; margin: 8px 0 0; }
+.note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 
 .stats { margin: 0 0 4px; }
 
@@ -366,12 +310,22 @@ label.check input { width: auto; accent-color: var(--accent); }
 }
 
 .stats dt { color: var(--muted); font-size: 13px; }
+.stats dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
 
-.stats dd {
-  margin: 0;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
+details.advanced { margin-top: 4px; }
+
+details.advanced > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+  padding: 4px 0;
 }
+
+details.advanced > summary::-webkit-details-marker { display: none; }
+details.advanced > summary::before { content: '▸ '; }
+details.advanced[open] > summary::before { content: '▾ '; }
+details.advanced > div { padding-top: 8px; }
 
 /* ---------- responsive ---------- */
 
@@ -387,9 +341,6 @@ label.check input { width: auto; accent-color: var(--accent); }
 
 body.embed .topbar { display: none; }
 
-/* No layout override here on purpose: an embed is usually narrower than the
-   standalone page, so it should fall into the stacked layout and give the
-   3D view the full width. It only needs more height than the phone default. */
 @media (max-width: 860px) {
   body.embed .viewport { height: 62vh; min-height: 340px; }
 }

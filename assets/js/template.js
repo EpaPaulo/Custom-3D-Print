@@ -33,15 +33,23 @@ export function parseSTL(arrayBuffer) {
 
 /**
  * Locate the flat outward face to stamp on: the lowest Z plane carrying
- * downward-facing triangles. Returns its plane, outline box and centre, plus
- * the largest axis-aligned rectangle that stays clear of the rounded corners.
+ * downward-facing triangles. Returns its plane, outline box and centre, the
+ * model's overall thickness, and the usable design area — the largest
+ * axis-aligned rectangle that stays clear of the rounded corners.
+ *
+ * A circular face is the limiting case of a rounded rectangle, so the same
+ * outline measurement identifies one: its corner radius reaches half its own
+ * width. That case is reported separately, because a design confined to the
+ * square inscribed in a disc would throw away a third of the room available.
  */
 export function analyseFace(positions) {
   const tri = positions.length / 9;
 
   let minZ = Infinity;
+  let maxZ = -Infinity;
   for (let i = 2; i < positions.length; i += 3) {
     if (positions[i] < minZ) minZ = positions[i];
+    if (positions[i] > maxZ) maxZ = positions[i];
   }
 
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -85,20 +93,38 @@ export function analyseFace(positions) {
   const rX = Number.isFinite(botLo) ? botLo - x0 : 0;
   const radius = Math.max(0, Math.min(rX, rY));
 
+  const width = x1 - x0;
+  const height = y1 - y0;
+
+  // Square outline, corners rounded all the way to the middle of a side: that
+  // is a disc. The measured radius falls a hair short of half the width, since
+  // the arc is a polygon and its extreme vertex is rarely exactly on the axis.
+  const MARGIN = 2;
+  const round = Math.abs(width - height) <= 0.02 * Math.max(width, height) &&
+                radius >= 0.45 * Math.max(width, height);
+
   // A rectangle inscribed in a rounded rectangle must pull in by r(1 - 1/√2)
   // at each side to clear the arcs. A little extra keeps designs off the edge.
-  const inset = radius * (1 - Math.SQRT1_2) + 2;
+  const inset = radius * (1 - Math.SQRT1_2) + MARGIN;
+
+  // On a disc the design area is the whole face rather than the square inside
+  // it, and `clip` is what holds the design to the outline: the caller keeps
+  // its layers in a square box, and anything outside the circle is dropped.
+  const clip = round ? Math.max(5, Math.min(width, height) / 2 - MARGIN) : 0;
 
   return {
     z: minZ,
-    width: x1 - x0,
-    height: y1 - y0,
+    thickness: maxZ - minZ,
+    width,
+    height,
     cx: (x0 + x1) / 2,
     cy: (y0 + y1) / 2,
     radius,
+    round,
+    clip,
     area,
-    safeWidth: Math.max(10, x1 - x0 - 2 * inset),
-    safeHeight: Math.max(10, y1 - y0 - 2 * inset),
+    safeWidth: round ? 2 * clip : Math.max(10, width - 2 * inset),
+    safeHeight: round ? 2 * clip : Math.max(10, height - 2 * inset),
   };
 }
 
@@ -134,9 +160,10 @@ function sampleBox(sat, w, h, cx, cy, half) {
  * two triangles removes the ambiguity entirely, and every region it produces is
  * convex, so a fan triangulation of it is always valid.
  *
- * surface   { z, cx, cy, dir, mirror } — the face plane, the centre of the
- *           design area in world XY, +1/-1 for which way the face points, and
- *           whether layer +x maps to world -x.
+ * surface   { z, cx, cy, dir, mirror, clip } — the face plane, the centre of
+ *           the design area in world XY, +1/-1 for which way the face points,
+ *           whether layer +x maps to world -x, and, on a round face, the
+ *           radius the design is held inside (0 for a rectangular one).
  * mask      { sat, w, h, pxPerMm, faceW, faceH } over the usable area, or null
  * thickness how deep the colour runs into the cover, in mm
  * cell      grid pitch in mm
@@ -161,17 +188,20 @@ export function buildInlaySolid(surface, mask, thickness, cell) {
 
   // Sample the mask onto the grid. Anything beyond the usable area is forced
   // to zero: sampleBox clamps to the bitmap, which would otherwise smear the
-  // edge value outward and leave the contour open.
+  // edge value outward and leave the contour open. A round face carries the
+  // same cut at its circle, so a design cannot run off the disc.
   const field = new Float32Array((nu + 1) * (nv + 1));
   const halfPx = (cell * mask.pxPerMm) / 2;
   const hw = mask.faceW / 2;
   const hh = mask.faceH / 2;
+  const clip2 = surface.clip > 0 ? surface.clip * surface.clip : 0;
 
   for (let j = 0; j <= nv; j++) {
     const ly = LY(j);
     for (let i = 0; i <= nu; i++) {
       const lx = LX(i);
       if (lx <= -hw || lx >= hw || ly <= -hh || ly >= hh) continue;
+      if (clip2 && lx * lx + ly * ly >= clip2) continue;
       field[j * W + i] = sampleBox(
         mask.sat, mask.w, mask.h,
         (lx + hw) * mask.pxPerMm, (hh - ly) * mask.pxPerMm, halfPx,

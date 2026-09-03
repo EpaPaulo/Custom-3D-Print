@@ -1,5 +1,5 @@
 /**
- * Storefront bridge — drop this into the Shopify theme alongside the
+ * Storefront bridge — drop this into the Shopify theme alongside the plate
  * configurator (theme app extension, or a plain <script type="module">).
  *
  * It carries the design from the browser to the order backend, then puts a
@@ -7,6 +7,10 @@
  * the cart: line item properties are small, customer-visible and awkward to
  * validate, so the cart holds an id and a thumbnail while the real record
  * lives server-side.
+ *
+ * A plate's whole design is a couple of dozen numbers, so unlike a stamped
+ * cover there is no bitmap to move — but the same rule applies to where it is
+ * kept, because the cart is not a place to validate dimensions.
  *
  * The `_design_id` property is underscore-prefixed, which is Shopify's
  * convention for "keep this out of the customer-facing cart display". It still
@@ -23,9 +27,12 @@ export class BridgeError extends Error {}
  * @param {number|string} opts.variantId  Shopify variant to add
  * @param {number}  [opts.quantity]
  * @param {string}  [opts.previewLabel]  visible property name for the thumbnail
- * @returns {Promise<{designId: string, cartItem: object}>}
+ * @param {string}  [opts.zone]      destination to price shipping against
+ * @param {HTMLIFrameElement} [opts.frame]  the configurator, if it is embedded
+ * @param {string}  [opts.frameOrigin]   origin to address the frame at
+ * @returns {Promise<{designId: string, quote: object, cartItem: object}>}
  */
-export async function addPersonalisedToCart(opts) {
+export async function addPlateToCart(opts) {
   const {
     apiBase,
     variantId,
@@ -42,12 +49,15 @@ export async function addPersonalisedToCart(opts) {
   const design = frame
     ? await readDesignFromFrame(frame, frameOrigin)
     : readDesign();
-  assertOrderable(design);
+
+  if (!design || !design.spec) {
+    throw new BridgeError('There is no plate to order yet.');
+  }
 
   const created = await postJson(`${api}/api/designs`, {
-    config: design.config,
-    maskPng: design.maskPng,
+    spec: design.spec,
     previewPng: design.previewPng,
+    zone: opts.zone,
   });
 
   if (!created || !created.id) {
@@ -61,11 +71,24 @@ export async function addPersonalisedToCart(opts) {
     items: [{ id: variantId, quantity, properties }],
   });
 
-  return { designId: created.id, cartItem };
+  return { designId: created.id, quote: created.quote, cartItem };
+}
+
+/**
+ * What the backend would charge for the plate currently on screen, without
+ * keeping anything. Use it to show a live price beside the configurator.
+ *
+ * `zone` prices one destination; the answer carries every other destination
+ * priced alongside it, so a shipping picker needs one request, not one per
+ * option.
+ */
+export async function quotePlate(apiBase, spec, zone) {
+  const api = String(apiBase).replace(/\/+$/, '');
+  return postJson(`${api}/api/plates`, zone ? { ...spec, zone } : spec);
 }
 
 function readDesign() {
-  const api = window.BimbyCover;
+  const api = window.LegoPlate;
   if (!api || typeof api.getDesign !== 'function') {
     throw new BridgeError('The configurator is not loaded on this page.');
   }
@@ -78,90 +101,53 @@ function readDesignFromFrame(frame, origin) {
   if (!target) throw new BridgeError('The configurator frame is not ready yet.');
 
   return new Promise((resolve, reject) => {
-    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
+    const requestId = Math.random().toString(36).slice(2);
     const timer = setTimeout(() => {
-      cleanup();
-      reject(new BridgeError('The configurator did not respond.'));
-    }, 15000);
+      window.removeEventListener('message', onMessage);
+      reject(new BridgeError('The configurator did not answer.'));
+    }, 10000);
 
     function onMessage(event) {
       const msg = event.data;
-      if (!msg || msg.type !== 'bimby:design' || msg.requestId !== requestId) return;
-      cleanup();
+      if (!msg || msg.type !== 'plate:design' || msg.requestId !== requestId) return;
+      if (event.source !== target) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
       resolve(msg.design);
     }
 
-    function cleanup() {
-      clearTimeout(timer);
-      window.removeEventListener('message', onMessage);
-    }
-
     window.addEventListener('message', onMessage);
-    target.postMessage({ type: 'bimby:getDesign', requestId }, origin);
+    target.postMessage({ type: 'plate:getDesign', requestId }, origin);
   });
 }
 
-function assertOrderable(design) {
-  if (!design) {
-    throw new BridgeError('Adicione texto ou uma imagem antes de comprar.');
+/**
+ * What a whole cart costs, delivered.
+ *
+ * `items` are `{ designId, quantity }` or `{ spec, quantity }` — a cart holds
+ * the first kind. Call this rather than quoting each line and adding it up:
+ * the plates travel in one box, and one box is one delivery charge.
+ *
+ * The answer carries every destination priced for that same box, so a shipping
+ * picker on the cart page needs one request.
+ */
+export async function quoteBasket(apiBase, items, zone) {
+  const api = String(apiBase).replace(/\/+$/, '');
+  if (!Array.isArray(items) || !items.length) {
+    throw new BridgeError('There is nothing in the basket.');
   }
-  if (design.config.mode !== 'template') {
-    // Custom sizes are a design tool, not a product: the shop prints the
-    // supplied models, at the measurements that make them fit the machine.
-    throw new BridgeError('Só os modelos padrão podem ser encomendados.');
-  }
+  return postJson(`${api}/api/baskets`, zone ? { items, zone } : { items });
 }
 
 async function postJson(url, body) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { /* keep the raw text */ }
-
   if (!res.ok) {
-    const detail = (data && (data.error || data.description)) || text.slice(0, 200);
-    throw new BridgeError(`${url} failed (${res.status}): ${detail}`);
+    const detail = await res.json().catch(() => null);
+    throw new BridgeError(detail?.error || `${url} answered ${res.status}.`);
   }
-  return data;
-}
-
-// Convenience for themes that would rather not write any JavaScript: put
-// data-cover-add and data-variant-id on a button and this wires itself up.
-export function autoWire(apiBase, options = {}) {
-  const { frameSelector = '[data-cover-frame]', onAdded = null } = options;
-
-  document.addEventListener('click', async (event) => {
-    const btn = event.target.closest('[data-cover-add]');
-    if (!btn) return;
-    event.preventDefault();
-
-    const errorEl = document.querySelector('[data-cover-error]');
-    if (errorEl) errorEl.textContent = '';
-
-    const previous = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'A adicionar…';
-    try {
-      const result = await addPersonalisedToCart({
-        apiBase,
-        variantId: btn.dataset.variantId,
-        quantity: Number(btn.dataset.quantity || 1),
-        frame: document.querySelector(frameSelector),
-      });
-      if (onAdded) onAdded(result);
-      else window.location.href = '/cart';
-    } catch (err) {
-      if (errorEl) errorEl.textContent = err.message;
-      else alert(err.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = previous;
-    }
-  });
+  return res.json();
 }
