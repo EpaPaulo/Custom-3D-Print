@@ -216,41 +216,52 @@ export const PRODUCTS = [
 
   // -- LEGO ----------------------------------------------------------------
   {
-    handle: 'placa-nome-tijolos',
+    handle: 'placa-base-medida',
     niche: 'lego',
-    title: 'Placa de nome em tijolos',
-    subtitle: 'Escreva o nome, nós imprimimos',
-    price: 1990,
+    title: 'Placa base à sua medida',
+    subtitle: 'Qualquer forma, qualquer tamanho em pinos',
+    price: 2490,
     rating: 4.8,
     reviews: 54,
     badge: 'Personalizável',
     featured: true,
-    colours: set('vermelho', 'azul', 'amarelo', 'verde', 'preto'),
-    customizer: { app: 'lego', model: 'nameplate' },
+    colours: set('vermelho', 'azul', 'amarelo', 'verde', 'preto', 'cinza'),
+    customizer: { app: 'lego', model: 'rect' },
     blurb:
-      'Uma placa compatível com tijolos, com o nome desenhado no gerador — para a porta '
-      + 'do quarto, a secretária ou a caixa de arrumação.',
+      'Retângulo, círculo, estrela, coração, abóbora — escolha a forma e o tamanho '
+      + 'em pinos no gerador, veja a placa em 3D e nós imprimimos.',
     bullets: [
-      'Até 12 caracteres, com os pinos no passo de 8 mm.',
-      'Duas cores: placa e letras em filamentos diferentes.',
-      'Encaixa em placas base compatíveis.',
+      'Grelha de 8,00 mm: uma placa de 28 × 25 mede 223,8 × 199,8 mm, como uma verdadeira.',
+      'Pinos calibrados para entrarem num tijolo à primeira.',
+      'Preço-base para a placa padrão (28 × 25 pinos); tamanhos maiores são orçamentados na revisão.',
     ],
-    specs: { Material: 'PLA', Passo: '8 mm (compatível)', Expedição: '3–5 dias úteis' },
+    specs: {
+      Passo: '8,00 mm (compatível)',
+      Padrão: '28 × 25 pinos — 223,8 × 199,8 mm',
+      Material: 'PLA',
+      Expedição: '3–5 dias úteis',
+    },
   },
   {
-    handle: 'quadro-minifigura',
+    handle: 'placa-letra',
     niche: 'lego',
-    title: 'Quadro de minifigura',
-    subtitle: 'Com nome e data à escolha',
-    price: 2490,
+    title: 'Placa letra ou número',
+    subtitle: 'Uma letra por placa, montável em qualquer nome',
+    price: 1490,
     rating: 4.7,
     reviews: 29,
     badge: 'Personalizável',
-    colours: set('preto', 'branco', 'azul'),
-    customizer: { app: 'lego', model: 'frame' },
-    blurb: 'Moldura para uma minifigura, com uma legenda gravada à sua escolha. Presente fácil.',
-    bullets: ['Espaço para uma minifigura e dois acessórios.', 'Pendura na parede ou assenta na estante.'],
-    specs: { Medidas: '120 × 160 × 28 mm', Material: 'PLA', Expedição: '3–5 dias úteis' },
+    colours: set('vermelho', 'azul', 'amarelo', 'verde', 'branco'),
+    customizer: { app: 'lego', model: 'text' },
+    blurb:
+      'A placa tem a forma da própria letra, com pinos por cima. Encomende as letras '
+      + 'de um nome e monte-o na parede ou na estante.',
+    bullets: [
+      'Escolha o carácter e o tipo de letra no gerador.',
+      'A largura acompanha a letra; a altura é sua.',
+      'Compatível com tijolos por cima.',
+    ],
+    specs: { Passo: '8,00 mm (compatível)', Material: 'PLA', Expedição: '3–5 dias úteis' },
   },
   {
     handle: 'expositor-minifiguras-16',

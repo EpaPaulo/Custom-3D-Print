@@ -22,7 +22,6 @@ Then <http://localhost:8099/store/>.
 | `collection.html?c=<niche>` | one category; also `?q=<termo>` for search and `?perso=1` for everything personalisable |
 | `product.html?p=<handle>` | one product; personalisable ones open a generator |
 | `cart.html` | cart, totals and the stub checkout |
-| `lego-customizer.html` | the brick-plate generator (a prototype — see below) |
 
 ## What personalisation does
 
@@ -37,40 +36,32 @@ Pressing *Personalizar* opens the generator over the page:
 - **Bimby** opens this repository's own configurator (`/index.html`) in
   `?shop=1` mode, which drops its header, the parametric generator and every
   route to the STL. Handing a shopper the model would give away the product.
-- **LEGO** opens `lego-customizer.html`, a prototype: text on a stud grid, two
-  filament colours, live measurements. It is a stand-in for the real brick
-  generator, not the real thing.
+- **LEGO** opens the plate generator (`/lego/index.html`) in `?shop=1` mode,
+  where the shape, the size in studs and the stud calibration are the design.
 
-Both speak the same three messages, which is what keeps the store from growing
-a branch per category:
+They are two apps with two protocols — `bimby:*` and `plate:*` — and one
+carries a rasterised mask while the other carries a plate spec. Rather than
+teach the modal both, each entry in `APPS` (`assets/customizer.js`) declares
+its own message names and a `read()` that turns that app's payload into the one
+shape the cart stores: a summary, a preview and whatever the backend needs.
+The pages above know only that a design arrived, so a third generator is an
+entry in `APPS` plus a `customizer` field on the catalogue rows.
 
-```
-app  -> page   { type: 'bimby:ready' | 'bimby:change', hasDesign, mode, model }
-page -> app    { type: 'bimby:getDesign', requestId }
-app  -> page   { type: 'bimby:design', requestId, design }
-```
+The preview is shrunk to a thumbnail for the cart line, so the cart shows what
+was actually designed rather than a stock picture of the part.
 
-`design` carries a config, the rasterised stamp mask and a preview PNG. The
-store shrinks the preview to a thumbnail for the cart line, so the cart shows
-what was actually designed rather than a stock picture of the part.
+### Pointing at an order backend
 
-A third personalisable niche is an entry in `APPS` (in
-`assets/customizer.js`) plus a `customizer` field on the catalogue rows — no
-new code on the pages.
-
-### Pointing at the real generators
-
-- `?legoApp=<url>` on any store page sends the brick products to a different
-  generator, when there is one to send them to.
-- `?api=<origin>` points at the order backend in `shopify/`. With it set, a
-  finished design is **filed** — `POST /api/designs` — and the cart line
-  carries the returned id, which is what fulfilment reads. Without it (the
-  usual way to try this) the design stays in the browser and only the thumbnail
-  travels, which is honest: nothing was filed, so nothing can be printed.
+`?api=<origin>` files each finished design — `POST /api/designs` — and the cart
+line carries the returned id, which is what fulfilment reads. Without it (the
+usual way to try this) the design stays in the browser and only the thumbnail
+travels, which is honest: nothing was filed, so nothing can be printed. The two
+products have two backends (`shopify/` and `lego/server/`), so one `?api=` is
+enough to try either, not both at once.
 
 ```sh
-# the whole thing, wired together
-cd shopify && npm start                                   # order backend on :3111
+# with the Bimby order backend behind it
+cd shopify && npm start                                   # :3111
 open http://localhost:8099/store/index.html?api=http://localhost:3111
 ```
 
@@ -99,7 +90,6 @@ store/
   collection.html       category / search / personalisable
   product.html          product detail + the personalisation step
   cart.html             cart + stub checkout
-  lego-customizer.html  brick-plate generator (prototype)
   assets/
     catalog.js          niches, products, variants — the only source of products
     ui.js               money, product artwork, header/footer, cards, toast
@@ -117,8 +107,13 @@ Shopify's `/cart/*.js` answers.
 
 ## Against the existing demo page
 
-`shopify/storefront/demo.html` remains what it was: a single product page that
-stands in for a real theme, wired to the order backend through
-`configurator-bridge.js`, and the thing to copy from when building the theme
-for real. This storefront is the shop around it — the browsing, the categories
-and the cart that page assumes already exist.
+`shopify/storefront/demo.html` and `lego/storefront/demo.html` remain what they
+were: single product pages that stand in for a real theme, wired to their own
+backends through their own bridges, and the things to copy from when building
+the theme for real — the LEGO one also quotes a live price from the slice,
+which this storefront does not.
+
+This storefront is the shop around them: the browsing, the categories and the
+cart those pages assume already exist. It prices from the catalogue instead of
+from the backend, which is the right trade for judging a purchase flow and the
+wrong one for taking money.

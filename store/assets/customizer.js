@@ -6,55 +6,89 @@
  * over the product page, waits for a design, and hands it back to the page as
  * something a cart line can hold.
  *
- * Two apps are wired in, and both speak the same contract as the TM7
- * configurator already does:
- *
- *   app -> page   { type: 'bimby:ready'  | 'bimby:change', hasDesign, mode, model }
- *   page -> app   { type: 'bimby:getDesign', requestId }
- *   app -> page   { type: 'bimby:design', requestId, design }
- *
- * Speaking one protocol is what keeps this file from growing a branch per
- * niche: a third personalisable category is an entry in APPS, not new code
- * here. (The message names are the configurator's own, kept as they are — a
- * rename would be a change on both sides for no gain.)
+ * Two apps are wired in, and they are two separate apps with two separate
+ * protocols — the Bimby cover personaliser (`bimby:*`) and the LEGO plate
+ * generator (`plate:*`). Rather than teach the modal both, each entry in APPS
+ * declares its own message names and how to read a design out of it, so the
+ * page above knows only "a design arrived". A third generator is an entry
+ * here, not new code on any page.
  */
-
-const READY = ['bimby:ready', 'bimby:change'];
 
 /**
- * Where each design app lives.
+ * Where each design app lives, and how to talk to it.
  *
- * `bimby` is the real configurator in this repository, opened in shop mode:
- * that drops its header, the parametric generator and every route to the STL,
- * because handing a shopper the model would give away the product.
+ * `ready`   the message an app broadcasts when it has something to sell
+ * `ask`/`reply`  the request/response pair for fetching the finished design
+ * `read`    turns that app's design payload into the shape the cart stores
  *
- * `lego` is the brick generator, which is still a mock in this repository —
- * `?legoApp=<url>` on the storefront points it at the real one when it exists,
- * without touching this file.
+ * Both apps run in `?shop=1`, which is each one's own mode for dropping the
+ * header and every route to the STL: in a shop the file is the product.
  */
-const params = new URLSearchParams(location.search);
-
 const APPS = {
   bimby: {
     label: 'Personalizador Bimby',
     hint: 'Escreva o texto ou carregue uma imagem. A pré-visualização é o que será impresso.',
     url: (model) => `../index.html?shop=1&model=${encodeURIComponent(model || 'cover')}`,
-  },
-  lego: {
-    label: 'Gerador de tijolos',
-    hint: 'Escreva o nome e escolha as cores. Cada letra é montada em pinos de 8 mm.',
-    url: (model) => {
-      const base = params.get('legoApp') || 'lego-customizer.html';
-      const join = base.includes('?') ? '&' : '?';
-      return `${base}${join}shop=1&model=${encodeURIComponent(model || 'nameplate')}`;
+    ready: ['bimby:ready', 'bimby:change'],
+    ask: 'bimby:getDesign',
+    reply: 'bimby:design',
+    read(design, spec) {
+      if (design.config && design.config.mode && design.config.mode !== 'template') {
+        // Custom sizes are a design tool, not a product: the shop prints the
+        // supplied models, at the measurements that make them fit the machine.
+        throw new Error('Só os modelos padrão podem ser encomendados.');
+      }
+      const layers = (design.config && design.config.layers) || [];
+      const texts = layers.map((l) => l.text).filter(Boolean);
+      const images = layers.filter((l) => l.type === 'image').length;
+      return {
+        model: (design.config && design.config.model) || spec.model || null,
+        summary: texts.length
+          ? `“${texts.join(' ')}”`
+          : (images ? `${images} ${images === 1 ? 'imagem' : 'imagens'}` : 'Desenho personalizado'),
+        previewPng: design.previewPng || null,
+        // The mask is what the order backend turns back into geometry.
+        payload: { config: design.config, maskPng: design.maskPng },
+      };
     },
   },
+
+  lego: {
+    label: 'Gerador de placas',
+    hint: 'Escolha a forma e o tamanho em pinos. As medidas seguem a grelha de 8 mm.',
+    url: () => '../lego/index.html?shop=1',
+    ready: ['plate:changed'],
+    ask: 'plate:getDesign',
+    reply: 'plate:design',
+    read(design, spec) {
+      const s = design.spec || {};
+      // One decimal, because that is how the generator states them: a plate is
+      // n × 8 mm minus the clearance, and rounding hides the clearance.
+      const mm = design.size ? `${design.size.x.toFixed(1)} × ${design.size.y.toFixed(1)} mm` : '';
+      const shape = s.shape === 'text' && s.char ? `Letra “${s.char}”` : SHAPE_LABELS[s.shape] || 'Placa';
+      return {
+        model: s.shape || spec.model || null,
+        summary: [shape, `${s.width} × ${s.depth} pinos`, mm].filter(Boolean).join(' · '),
+        previewPng: design.previewPng || null,
+        // The plate's spec *is* the design: the backend builds the mesh from it.
+        payload: { spec: design.spec, studs: design.studs },
+      };
+    },
+  },
+};
+
+/** Shape names, kept here so the store does not import the generator's modules. */
+const SHAPE_LABELS = {
+  rect: 'Retângulo', ellipse: 'Círculo / elipse', polygon: 'Polígono', star: 'Estrela',
+  cross: 'Cruz', lshape: 'Forma em L', heart: 'Coração', santa: 'Pai Natal',
+  bunny: 'Coelho', candycane: 'Bengala doce', pumpkin: 'Abóbora', ghost: 'Fantasma',
+  text: 'Letra / número',
 };
 
 export const appFor = (spec) => (spec && APPS[spec.app]) || null;
 
 /** The order backend, when one is running. `?api=` points at it. */
-export const API_BASE = (params.get('api') || '').replace(/\/+$/, '');
+export const API_BASE = (new URLSearchParams(location.search).get('api') || '').replace(/\/+$/, '');
 
 // ---------------------------------------------------------------------------
 // The modal
@@ -137,7 +171,7 @@ export class CustomizerModal {
 
   onMessage(event) {
     const msg = event.data;
-    if (!msg || !READY.includes(msg.type)) return;
+    if (!msg || !this.app || !this.app.ready.includes(msg.type)) return;
     if (this.frame && event.source !== this.frame.contentWindow) return;
     this.ready = true;
     this.useBtn.disabled = false;
@@ -151,18 +185,13 @@ export class CustomizerModal {
     this.useBtn.disabled = true;
     this.useBtn.textContent = 'A guardar…';
     try {
-      const design = await requestDesign(this.frame);
-      if (!design) throw new Error('Adicione texto ou uma imagem antes de continuar.');
-      if (design.config && design.config.mode && design.config.mode !== 'template') {
-        throw new Error('Só os modelos padrão podem ser encomendados.');
-      }
-      const id = await saveDesign(design);
-      this.onDone({
-        id,
-        model: (design.config && design.config.model) || this.spec.model || null,
-        summary: summarise(design),
-        previewPng: design.previewPng || null,
-      });
+      const raw = await requestDesign(this.frame, this.app);
+      if (!raw) throw new Error('Desenhe a peça antes de continuar.');
+      // Each app reports its design in its own terms; `read` is where that
+      // becomes the one shape the cart and the order backend both take.
+      const design = this.app.read(raw, this.spec);
+      design.id = await saveDesign(this.app, design);
+      this.onDone(design);
       this.close();
     } catch (err) {
       this.errEl.textContent = err.message;
@@ -174,7 +203,7 @@ export class CustomizerModal {
 }
 
 /** Ask across the iframe boundary, and give up rather than hanging forever. */
-function requestDesign(frame) {
+function requestDesign(frame, app) {
   const target = frame && frame.contentWindow;
   if (!target) throw new Error('O personalizador ainda não está pronto.');
 
@@ -187,7 +216,7 @@ function requestDesign(frame) {
 
     function onMessage(event) {
       const msg = event.data;
-      if (!msg || msg.type !== 'bimby:design' || msg.requestId !== requestId) return;
+      if (!msg || msg.type !== app.reply || msg.requestId !== requestId) return;
       cleanup();
       resolve(msg.design);
     }
@@ -197,7 +226,7 @@ function requestDesign(frame) {
     }
 
     window.addEventListener('message', onMessage);
-    target.postMessage({ type: 'bimby:getDesign', requestId }, '*');
+    target.postMessage({ type: app.ask, requestId }, '*');
   });
 }
 
@@ -208,31 +237,20 @@ function requestDesign(frame) {
  * in the browser and the cart carries the thumbnail alone. That is enough to
  * walk the whole purchase, and it is honest about what it is: nothing was
  * filed anywhere, so nothing can be printed.
+ *
+ * The two products have two backends (`shopify/` and `lego/server/`), so the
+ * origin belongs to the app rather than to the store. One `?api=` is enough to
+ * try either; a real deployment would carry both.
  */
-async function saveDesign(design) {
+async function saveDesign(app, design) {
   if (!API_BASE) return null;
   const res = await fetch(`${API_BASE}/api/designs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      config: design.config,
-      maskPng: design.maskPng,
-      previewPng: design.previewPng,
-    }),
+    body: JSON.stringify({ ...design.payload, previewPng: design.previewPng }),
   });
   if (!res.ok) throw new Error(`O serviço de desenhos recusou (${res.status}).`);
   const data = await res.json();
   if (!data || !data.id) throw new Error('O serviço de desenhos não devolveu um id.');
   return data.id;
-}
-
-/** One line describing the design, for the cart and the order summary. */
-function summarise(design) {
-  if (design.summary) return design.summary;
-  const layers = (design.config && design.config.layers) || [];
-  const texts = layers.map((l) => l.text).filter(Boolean);
-  if (texts.length) return `“${texts.join(' ')}”`;
-  const images = layers.filter((l) => l.type === 'image').length;
-  if (images) return images === 1 ? '1 imagem' : `${images} imagens`;
-  return 'Desenho personalizado';
 }

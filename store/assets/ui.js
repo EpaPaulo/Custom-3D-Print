@@ -187,7 +187,7 @@ export function chrome(current = '') {
     <a class="brand" href="index.html">epalfer<em>.</em>3d</a>
     <p style="margin-top:10px">Peças impressas em 3D por encomenda, em Portugal.
       Personalizadas quando faz sentido — e só quando faz.</p>
-    <p><a href="../index.html">Abrir o personalizador ↗</a></p>
+    <p><a href="../index.html">Personalizador Bimby ↗</a> · <a href="../lego/index.html">Gerador de placas ↗</a></p>
   </div>
   <div>
     <h4>Categorias</h4>
