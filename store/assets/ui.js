@@ -162,7 +162,7 @@ export function chrome(current = '') {
   if (header) {
     header.innerHTML = `
 <div class="wrap header-row">
-  <a class="brand" href="index.html">Form<em>o</em>ra</a>
+  <a class="brand" href="index.html">Form<em>CAT</em></a>
   <nav class="main-nav">
     ${NICHES.map((n) => `<a href="collection.html?c=${n.id}"${n.id === current ? ' aria-current="page"' : ''}>${escapeHtml(n.short)}</a>`).join('')}
   </nav>
@@ -187,7 +187,7 @@ export function chrome(current = '') {
     footer.innerHTML = `
 <div class="wrap footer-cols">
   <div>
-    <a class="brand" href="index.html">Form<em>o</em>ra</a>
+    <a class="brand" href="index.html">Form<em>CAT</em></a>
     <p style="margin-top:10px">Peças impressas em 3D por encomenda, em Portugal.
       Personalizadas quando faz sentido — e só quando faz.</p>
     <p><a href="../index.html">Personalizador Bimby ↗</a> · <a href="../lego/index.html">Gerador de placas ↗</a></p>

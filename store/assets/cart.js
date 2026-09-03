@@ -12,7 +12,7 @@
  * was actually designed rather than a stock picture of the part.
  */
 
-const KEY = 'formora-cart-v1';
+const KEY = 'formcat-cart-v1';
 
 /** localStorage is per-origin and small; a design thumbnail is capped to fit. */
 const MAX_ITEMS = 40;

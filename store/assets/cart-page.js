@@ -103,7 +103,7 @@ root.addEventListener('click', (e) => {
 function checkout() {
   const lines = cart.lines();
   const total = cart.subtotal() + (cart.subtotal() >= FREE_OVER ? 0 : SHIPPING);
-  const ref = `FM-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+  const ref = `FC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
   const perso = lines.filter((l) => l.design).length;
 
   cart.clear();

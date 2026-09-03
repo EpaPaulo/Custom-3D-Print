@@ -59,7 +59,7 @@ if (term) {
   };
 }
 
-document.title = `${head.title} — Formora`;
+document.title = `${head.title} — FormCAT`;
 
 document.querySelector('[data-head]').style.setProperty('--tone', head.tone);
 document.querySelector('[data-head]').innerHTML = `
