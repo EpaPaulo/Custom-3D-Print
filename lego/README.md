@@ -24,28 +24,59 @@ sell plates.
 
 ## Where the dimensions come from
 
-The generator was derived from a supplied 28 × 25 baseplate mesh. Dividing its
-measurements by its print scale gives round numbers, which are the ones the app
-uses as nominal:
+The generator builds on **LEGO's own lattice**, not on a print of it:
 
-| | nominal | the reference plate, at +1 % |
+| | |
+|---|---|
+| stud pitch | 8.00 mm |
+| stud diameter | 4.80 mm |
+| stud height | 1.80 mm |
+| side clearance | 0.20 mm |
+
+A run of *n* studs measures `n × pitch − clearance`, so a 28 × 25 plate is
+223.8 × 199.8 mm — what a real baseplate of that size measures.
+
+### Why not the supplied mesh
+
+This project started from a supplied 28 × 25 baseplate STL, and the generator
+deliberately does **not** reproduce it. That mesh is a **1 % upscale**: 8.08 mm
+pitch and 4.899 mm studs. Both errors push the same way, and a plate printed
+from it will not take a brick:
+
+| | the mesh | LEGO |
 |---|---|---|
-| stud pitch | 8.00 mm | 8.08 mm |
-| stud diameter | 4.85 mm | 4.90 mm |
-| stud height | 1.80 mm | 1.818 mm |
-| plate thickness | 1.30 mm | 1.313 mm |
-| side clearance | 0.20 mm | 0.202 mm |
+| pitch | 8.0800 mm | 8.0000 mm |
+| stud diameter | 4.8990 mm | 4.8000 mm |
 
-A run of *n* studs measures `n × pitch − clearance`, so 28 × 25 comes to
-226.038 × 201.798 mm — the supplied mesh to the micron. The one figure the
-generator does not copy is the 1.3 mm slab: nothing thinner than 2 mm gets
-built (see *Dimensões* below), so its plates stand 3.838 mm rather than
-3.131 mm. Footprint, grid and stud are the reference's exactly.
+The pitch is the serious one. A brick is rigid, so the error accumulates across
+it and there is nothing to take it up:
 
-**The +1 % matters.** Printed at exactly nominal, FDM studs come out slightly
-oversized and grip too hard; +1 % is what the reference plate is printed at and
-is the right place to start. Adjust it if your first plate is tight or loose —
-it is the one setting worth calibrating.
+| a real brick, on a plate printed from that mesh | out by |
+|---|---|
+| 2 × 2 | 0.08 mm |
+| 2 × 4 | 0.24 mm |
+| 1 × 8 | 0.56 mm |
+| 16 studs | 1.20 mm |
+
+So **the pitch is not adjustable and is never scaled**. It is a lattice shared
+with parts this generator did not make, and stretching the model to fix a fit
+problem moves every stud away from where a brick expects it.
+
+### Calibrating the fit
+
+The one number to tune is **Ajuste do pino** — how much comes off the stud's
+diameter, and nothing else. It defaults to **−0.10 mm**, because FDM lays a bead
+that bulges: a stud modelled at its nominal 4.80 mm comes off the bed nearer
+4.90 and will not enter a brick.
+
+Print a **4 × 4 tile**, try a brick, and move that one slider:
+
+- **too tight or will not go on** → more negative, in 0.05 mm steps
+- **falls off** → back towards 0
+
+It changes grip and nothing else — the plate's size, its grid and its stud
+positions are identical at every setting. If the whole plate measures wrong,
+that is your printer's XY calibration, not this number.
 
 ## Using it
 
@@ -82,7 +113,7 @@ it is the one setting worth calibrating.
    spec that carries its own — from an API caller, or stored by an older build
    that let them be edited — is ignored rather than obeyed, so an old bad value
    heals the next time the plate is built. To make studs grip more or less, use
-   the fit adjustment, which is the knob for it.
+   *Ajuste do pino*, which is the only knob for it and moves nothing else.
 
    Plate thickness is the exception and sits with the other dimensions: a
    thicker plate is stiffer and a thinner one cheaper, and a brick fits either
@@ -284,8 +315,8 @@ way no formula predicts:
 
 | | solid volume | actually printed |
 |---|---|---|
-| 20 × 20 plate, 2 mm (the floor) | 82 g | 57 g — 69 % |
-| 20 × 20 plate, 6 mm thick | 212 g | 78 g — 37 % |
+| 20 × 20 plate, 2 mm (the floor) | 79 g | 55 g — 69 % |
+| 20 × 20 plate, 6 mm thick | 205 g | 76 g — 37 % |
 
 Same footprint, and pricing the second by volume would overcharge by nearly
 three times. Set `PRINT_PROFILE` and the overrides beside it to the way your
@@ -300,9 +331,9 @@ light and the size of a sheet of paper:
 
 | | in the box | actual | volumetric | billed |
 |---|---|---|---|---|
-| 6 × 6 tile | 7 × 7 × 3 cm | 0.13 kg | 0.05 kg | **0.13 kg**, by weight |
-| 28 × 25 baseplate | 25 × 23 × 3 cm | 0.21 kg | 0.34 kg | **0.34 kg**, by size |
-| 40 × 40 baseplate | 35 × 35 × 3 cm | 0.32 kg | 0.73 kg | **0.73 kg**, by size |
+| 6 × 6 tile | 7 × 7 × 3 cm | 0.13 kg | 0.03 kg | **0.13 kg**, by weight |
+| 28 × 25 baseplate | 25 × 22 × 3 cm | 0.22 kg | 0.34 kg | **0.34 kg**, by size |
+| 40 × 40 baseplate | 34 × 34 × 3 cm | 0.34 kg | 0.71 kg | **0.71 kg**, by size |
 
 So the generator builds the parcel — the plate's footprint plus padding, and a
 minimum depth, because a flat plate still needs a box with some depth to it —

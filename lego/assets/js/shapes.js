@@ -67,11 +67,9 @@ export function buildOutline(spec, w, h, chord = 0.4) {
     case 'ellipse': return solid(ellipse(w, h, chord));
     case 'polygon': return solid(regular(w, h, spec.sides, spec.rotation));
     case 'star': return solid(star(w, h, spec.points, spec.innerRatio, spec.rotation));
-    // Arms are counted in studs, so they are measured against the *scaled*
-    // pitch — the grid the studs actually land on — not the nominal one.
-    case 'cross': return solid(cross(w, h, spec.arm * spec.pitch * spec.scale));
-    case 'lshape': return solid(lshape(
-      w, h, spec.armX * spec.pitch * spec.scale, spec.armY * spec.pitch * spec.scale));
+    // Arms are counted in studs, so they are measured against the pitch.
+    case 'cross': return solid(cross(w, h, spec.arm * spec.pitch));
+    case 'lshape': return solid(lshape(w, h, spec.armX * spec.pitch, spec.armY * spec.pitch));
     case 'heart': return solid(heart(w, h, chord));
     case 'santa': return solid(santa(w, h, chord));
     case 'bunny': return solid(bunny(w, h, chord));

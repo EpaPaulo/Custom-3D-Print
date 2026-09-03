@@ -76,7 +76,7 @@ const SLIDERS = [
   { el: 'f-arm', out: 'o-arm', key: 'arm', fmt: (v) => `${v} pinos` },
   { el: 'f-armx', out: 'o-armx', key: 'armX', fmt: (v) => `${v} pinos` },
   { el: 'f-army', out: 'o-army', key: 'armY', fmt: (v) => `${v} pinos` },
-  { el: 'f-scale', out: 'o-scale', key: 'scale', fmt: (v) => `${v > 1 ? '+' : ''}${((v - 1) * 100).toFixed(1)} %` },
+  { el: 'f-studtrim', out: 'o-studtrim', key: 'studTrim', fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} mm · Ø ${(dims().radius * 2).toFixed(2)}` },
   { el: 'f-thickness', out: 'o-thickness', key: 'thickness', fmt: (v) => mm(v) },
 ];
 

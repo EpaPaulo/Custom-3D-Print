@@ -18,7 +18,7 @@ process.env.ALLOWED_ORIGINS = 'https://shop.example.com';
 
 const { createApp } = await import('../src/server.js');
 const store = await import('../src/store.js');
-const { buildPlate, normaliseSpec, SpecError, SHAPES, FONTS, CHARACTERS, MIN_THICKNESS } = await import('../../assets/js/plate.js');
+const { buildPlate, normaliseSpec, resolve, SpecError, SHAPES, FONTS, CHARACTERS, MIN_THICKNESS } = await import('../../assets/js/plate.js');
 const { earcut, deviation } = await import('../../assets/js/earcut.js');
 const { slicePrint, PROFILES } = await import('../../assets/js/slice.js');
 const { priceOf, priceBasket, shippingFor, parcelFor, packParcel, shippingOptions, ZONES } = await import('../../assets/js/price.js');
@@ -56,8 +56,12 @@ const adminHeaders = { Authorization: `Bearer ${ADMIN_TOKEN}` };
 // A 1x1 PNG, enough to prove the preview path stores and serves bytes.
 const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-// The uploaded reference baseplate, in the numbers this generator uses.
-const REFERENCE = { shape: 'rect', width: 28, depth: 25, scale: 1.01 };
+// A 28 x 25 plate — the size of the baseplate this project started from.
+const REFERENCE = { shape: 'rect', width: 28, depth: 25 };
+
+// LEGO's own lattice. A plate shares it with every real brick, so these are
+// facts to hold the generator to rather than settings.
+const LEGO = { pitch: 8, clearance: 0.2, studDiameter: 4.8, studHeight: 1.8 };
 
 // --- geometry --------------------------------------------------------------
 
@@ -192,21 +196,50 @@ await check('a bed-sized plate stays closed at the finest contour', () => {
   assert.equal(plate.studs.length, 1024);
 });
 
-await check('the reference baseplate reproduces to the tenth of a micron', () => {
-  // Footprint and grid are the compatibility claim, and they match the supplied
-  // mesh exactly: 28 x 25 studs at 8.08 mm, less the 0.202 mm clearance.
+await check('the grid is LEGO\'s, to the micron, and nothing can move it', () => {
+  // This is the check that matters, and the one whose absence let a plate ship
+  // that no brick would sit on. The supplied reference mesh is a 1 % upscale —
+  // 8.08 mm pitch, 4.899 mm studs — and matching it is exactly what must not
+  // happen: 1 % is 0.24 mm across a 2x4 brick and 0.56 mm across a 1x8, and a
+  // brick is rigid.
+  const d = resolve(normaliseSpec({}));
+  assert.equal(d.pitch, LEGO.pitch, `pitch ${d.pitch}`);
+  assert.equal(d.clearance, LEGO.clearance);
+  assert.equal(d.studHeight, LEGO.studHeight);
+
   const plate = buildPlate(REFERENCE);
   assert.equal(plate.studs.length, 700);
-  assert.ok(Math.abs(plate.size.x - 226.038) < 1e-3, `width ${plate.size.x}`);
-  assert.ok(Math.abs(plate.size.y - 201.798) < 1e-3, `depth ${plate.size.y}`);
+  // A 28-stud run is 28 pitches less the clearance, which is what a real
+  // baseplate of that size measures.
+  assert.ok(Math.abs(plate.size.x - (28 * 8 - 0.2)) < 1e-6, `width ${plate.size.x}`);
+  assert.ok(Math.abs(plate.size.y - (25 * 8 - 0.2)) < 1e-6, `depth ${plate.size.y}`);
 
-  // Height deliberately does not: the reference is a 1.3 mm slab, and nothing
-  // below MIN_THICKNESS gets built any more, so the plate stands taller by the
-  // difference. The stud on top of it is still the reference's.
-  const studHeight = 1.8 * REFERENCE.scale;
-  assert.ok(Math.abs(plate.size.z - (MIN_THICKNESS * REFERENCE.scale + studHeight)) < 1e-3,
-    `height ${plate.size.z}`);
-  assert.ok(plate.size.z > 3.131, 'the thickness floor did not apply');
+  // Stud centres land on the lattice a brick expects, all the way across.
+  const xs = [...new Set(plate.studs.map((s) => Math.round(s.x * 1e6) / 1e6))].sort((a, b) => a - b);
+  assert.equal(xs.length, 28);
+  for (let i = 1; i < xs.length; i++) {
+    assert.ok(Math.abs((xs[i] - xs[i - 1]) - LEGO.pitch) < 1e-9, `gap ${xs[i] - xs[i - 1]}`);
+  }
+  assert.ok(Math.abs((xs[27] - xs[0]) - 27 * LEGO.pitch) < 1e-6, 'error accumulated across the plate');
+});
+
+await check('trimming the stud changes the stud and nothing else', () => {
+  // The fit knob must not be a scale. Scaling the model to loosen a stud is
+  // what put the grid 1 % out in the first place.
+  const loose = buildPlate({ width: 12, depth: 12, studTrim: -0.3 });
+  const tight = buildPlate({ width: 12, depth: 12, studTrim: 0.1 });
+
+  assert.equal(loose.dims.pitch, tight.dims.pitch);
+  assert.equal(loose.size.x, tight.size.x);
+  assert.equal(loose.size.y, tight.size.y);
+  assert.equal(loose.size.z, tight.size.z);
+  assert.equal(loose.studs.length, tight.studs.length);
+  assert.ok(loose.dims.radius < tight.dims.radius, 'the trim did not reach the stud');
+  assert.ok(Math.abs((tight.dims.radius - loose.dims.radius) * 2 - 0.4) < 1e-9);
+
+  // And the default takes something off, because FDM adds it back.
+  assert.ok(resolve(normaliseSpec({})).radius * 2 < LEGO.studDiameter,
+    'a stud modelled at nominal will print too fat to fit');
 });
 
 await check('hollow studs use less material than solid ones', () => {
@@ -235,17 +268,17 @@ await check('the dimensions that decide compatibility cannot be overridden', () 
   const forced = normaliseSpec({
     studHeight: 3.2, studDiameter: 6.75, pitch: 11.5, clearance: 0.9, studWall: 4,
   });
-  assert.equal(forced.pitch, 8);
-  assert.equal(forced.studDiameter, 4.85);
-  assert.equal(forced.studHeight, 1.8);
-  assert.equal(forced.clearance, 0.2);
+  assert.equal(forced.pitch, LEGO.pitch);
+  assert.equal(forced.studDiameter, LEGO.studDiameter);
+  assert.equal(forced.studHeight, LEGO.studHeight);
+  assert.equal(forced.clearance, LEGO.clearance);
 
   // The system still decides them, so Duplo is Duplo.
   assert.equal(normaliseSpec({ system: 'duplo', pitch: 11.5 }).pitch, 16);
 
   // A plate built from a spec carrying junk is the standard one, to the micron.
   const plate = buildPlate({ width: 28, depth: 25, pitch: 11.5, studDiameter: 6.75 });
-  assert.ok(Math.abs(plate.size.x - 226.038) < 1e-3, `width ${plate.size.x}`);
+  assert.ok(Math.abs(plate.size.x - (28 * 8 - 0.2)) < 1e-6, `width ${plate.size.x}`);
   assert.equal(plate.studs.length, 700);
 
   // Thickness is the exception: a real choice, and still settable above the
@@ -260,9 +293,9 @@ await check('the dimensions that decide compatibility cannot be overridden', () 
 });
 
 await check('out-of-range numbers are clamped, unknown names are refused', () => {
-  const spec = normaliseSpec({ width: 9999, scale: 5, thickness: -3 });
+  const spec = normaliseSpec({ width: 9999, studTrim: -5, thickness: -3 });
   assert.equal(spec.width, 96);
-  assert.equal(spec.scale, 1.06);
+  assert.equal(spec.studTrim, -0.4);
   assert.equal(spec.thickness, MIN_THICKNESS);
   assert.throws(() => normaliseSpec({ shape: 'dodecahedron' }), SpecError);
   assert.throws(() => normaliseSpec({ width: 96, depth: 96 }), SpecError);
@@ -485,7 +518,7 @@ await check('POST /api/plates quotes the reference plate from a real slice', asy
   const { status, body } = await post('/api/plates', REFERENCE);
   assert.equal(status, 200);
   assert.equal(body.studs, 700);
-  assert.equal(body.size.x, 226.038);
+  assert.equal(body.size.x, 223.8);
   assert.ok(body.quote.total > 0, 'no price');
   assert.ok(body.quote.grams > 50 && body.quote.grams < 110, `${body.quote.grams} g looks wrong`);
   assert.ok(body.quote.hours > 1, `${body.quote.hours} h looks wrong`);
@@ -542,8 +575,8 @@ await check('POST /api/plates/stl serves a solid to an admin', async () => {
   assert.equal(res.status, 200);
   const { triangles, size } = stlBounds(Buffer.from(await res.arrayBuffer()));
   assert.ok(triangles > 1000, `only ${triangles} triangles`);
-  assert.ok(Math.abs(size[0] - 226.038) < 0.01, `width ${size[0]}`);
-  assert.ok(Math.abs(size[2] - (MIN_THICKNESS + 1.8) * 1.01) < 0.01, `height ${size[2]}`);
+  assert.ok(Math.abs(size[0] - (28 * 8 - 0.2)) < 0.01, `width ${size[0]}`);
+  assert.ok(Math.abs(size[2] - (MIN_THICKNESS + LEGO.studHeight)) < 0.01, `height ${size[2]}`);
 });
 
 await check('POST /api/baskets prices a whole order in one box', async () => {

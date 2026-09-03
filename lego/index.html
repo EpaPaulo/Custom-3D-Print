@@ -128,12 +128,14 @@
       </div>
 
       <div class="field">
-        <label for="f-scale">Ajuste de encaixe <output id="o-scale"></output></label>
-        <input type="range" id="f-scale" min="0.99" max="1.03" step="0.001" value="1.01">
+        <label for="f-studtrim">Ajuste do pino <output id="o-studtrim"></output></label>
+        <input type="range" id="f-studtrim" min="-0.4" max="0.2" step="0.01" value="-0.1">
       </div>
       <p class="note">
-        Impresso à medida exata, um pino agarra a mais. +1 % é o valor do modelo
-        de referência e o ponto de partida certo para FDM.
+        Quanto se tira ao diâmetro do pino. A impressora deposita um cordão que
+        incha, por isso um pino desenhado nos 4.8 mm exatos sai com quase 4.9 e
+        não entra na peça. Se ficar solto aproxime de 0; se ficar apertado
+        continue a descer. É o único número a calibrar — a grelha não se mexe.
       </p>
 
       <div class="field" style="margin-top:12px">

@@ -22,12 +22,13 @@ export { SHAPES, shapeById, FONTS, CHARACTERS, fontById };
 export class SpecError extends Error {}
 
 /**
- * The stud systems on offer, in nominal millimetres before the fit scale.
+ * The stud systems on offer, in millimetres.
  *
- * The LEGO figures are the ones the supplied reference baseplate measures once
- * its 1 % print scale is divided out: 8 mm pitch, 4.85 mm studs 1.8 mm tall on
- * a 1.3 mm slab, and a 0.2 mm clearance so two plates sit side by side without
- * fighting. Duplo is the same construction at twice the pitch.
+ * These are the real figures, not a print of them. The pitch especially: 8 mm
+ * is a lattice a real brick also sits on, so it is not a number to adjust. A
+ * plate whose pitch is 1 % out is 0.24 mm out across a 2x4 brick and 0.56 mm
+ * across a 1x8, and a brick is rigid — it binds rather than stretching to
+ * meet the studs. Duplo is the same construction at twice the pitch.
  */
 export const SYSTEMS = [
   {
@@ -35,7 +36,7 @@ export const SYSTEMS = [
     label: 'Compatível LEGO',
     pitch: 8,
     clearance: 0.2,
-    studDiameter: 4.85,
+    studDiameter: 4.8,
     studHeight: 1.8,
     // LEGO's real baseplate slab. MIN_THICKNESS raises what actually gets
     // built; this stays the figure the reference mesh was derived from.
@@ -93,7 +94,7 @@ export const MIN_THICKNESS = 2;
 export const LIMITS = {
   studs: 96,          // per side
   maxStuds: 6000,     // positions on the grid
-  scale: [0.95, 1.06],
+  studTrim: [-0.4, 0.2],
   thickness: [MIN_THICKNESS, 12],
   margin: [0, 4],
 };
@@ -103,9 +104,11 @@ export const DEFAULTS = {
   shape: 'rect',
   width: 28,
   depth: 25,
-  // Fit scale. 1.01 is what the supplied reference plate is printed at, and it
-  // is the right default: an FDM plate printed dead nominal grips too tightly.
-  scale: 1.01,
+  // How much to take off the stud, in millimetres of diameter. Negative
+  // because FDM lays a bead that bulges: a stud modelled at its nominal 4.8 mm
+  // comes off the bed nearer 4.9 and will not enter a brick. This is the one
+  // number to calibrate, and it changes nothing but grip.
+  studTrim: -0.1,
   pattern: 'full',
   quality: 'normal',
   hollowStuds: false,
@@ -164,7 +167,7 @@ export function normaliseSpec(input = {}) {
 
   spec.width = Math.round(clamp(num(input.width, DEFAULTS.width), [1, LIMITS.studs]));
   spec.depth = Math.round(clamp(num(input.depth, DEFAULTS.depth), [1, LIMITS.studs]));
-  spec.scale = clamp(num(input.scale, DEFAULTS.scale), LIMITS.scale);
+  spec.studTrim = clamp(num(input.studTrim, DEFAULTS.studTrim), LIMITS.studTrim);
   spec.margin = clamp(num(input.margin, DEFAULTS.margin), LIMITS.margin);
   spec.hollowStuds = !!input.hollowStuds;
 
@@ -222,8 +225,7 @@ export function normaliseSpec(input = {}) {
   // different letter — so it is worked back from the glyph and the height they
   // did set, and the box the outline is fitted to is the shape of the glyph.
   if (spec.shape === 'text') {
-    const pitch = spec.pitch * spec.scale;
-    const clearance = spec.clearance * spec.scale;
+    const { pitch, clearance } = spec;
     const boxHeight = spec.depth * pitch - clearance;
     const wanted = (boxHeight * glyphAspect(spec.font, spec.char) + clearance) / pitch;
     spec.width = Math.max(1, Math.min(LIMITS.studs, Math.round(wanted)));
@@ -254,24 +256,27 @@ export function normaliseSpec(input = {}) {
  * the customer is by construction the number that was built.
  */
 export function resolve(spec) {
-  const s = spec.scale;
-  const pitch = spec.pitch * s;
-  const clearance = spec.clearance * s;
+  const { pitch, clearance } = spec;
   const q = QUALITIES[spec.quality];
 
+  // Nothing here is scaled. A plate shares its grid with real bricks, so the
+  // pitch is the one dimension that must come out of the printer at exactly
+  // the number LEGO uses; stretching the whole model to fix a fit problem
+  // moves every stud away from where a brick expects it. Grip is corrected on
+  // the stud alone, which is what `studTrim` is.
   return {
     pitch,
     clearance,
-    radius: (spec.studDiameter * s) / 2,
-    studHeight: spec.studHeight * s,
-    thickness: spec.thickness * s,
-    studWall: spec.studWall * s,
-    margin: spec.margin * s,
+    radius: Math.max(0.2, spec.studDiameter + spec.studTrim) / 2,
+    studHeight: spec.studHeight,
+    thickness: spec.thickness,
+    studWall: spec.studWall,
+    margin: spec.margin,
     // The footprint of an n-stud run: n pitches, less the clearance that keeps
     // two plates from binding when they are laid side by side.
     width: spec.width * pitch - clearance,
     depth: spec.depth * pitch - clearance,
-    height: (spec.thickness + spec.studHeight) * s,
+    height: spec.thickness + spec.studHeight,
     chord: q.chord,
     studSegments: q.studSegments,
   };
