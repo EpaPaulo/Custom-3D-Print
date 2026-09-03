@@ -38,8 +38,25 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.topbar h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-.topbar h1 span { color: var(--accent); }
+/* The shop's wordmark, so a generator opened on its own says whose it is and
+   leads back to the catalogue. It goes with the rest of the bar when embedded:
+   a host page carries its own. */
+.wordmark { font-size: 16px; font-weight: 750; letter-spacing: -0.02em; color: var(--text); text-decoration: none; }
+/* The brand blue, not this app's amber: the wordmark has to look the same in
+   every app and in the shop, while --accent stays each app's own colour for
+   its controls. */
+.wordmark span { color: #4da3ff; }
+
+/* The app's own name reads as a subtitle beside it, not as a second brand. */
+.topbar h1 {
+  margin: 0; font-size: 14px; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--muted); padding-left: 14px; border-left: 1px solid var(--line);
+}
+/* Two items became three when the wordmark arrived: space-between would push
+   the app's name into the middle of the bar, away from the brand it belongs
+   to. The name keeps to the wordmark; the actions keep to the right. */
+.topbar h1 { margin-right: auto; }
+
 .topbar-actions { display: flex; gap: 8px; }
 
 /* ---------- layout ---------- */

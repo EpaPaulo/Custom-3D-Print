@@ -1,9 +1,9 @@
-# The storefront
+# FormCAT — the storefront
 
-A shop front for the printing business, built to be walked rather than
-deployed: seven niches, a catalogue, a product page, a cart and a checkout that
-takes no money. It exists so the buying experience can be tried before any of
-it is rebuilt as a Shopify theme.
+FormCAT's shop front, built to be walked rather than deployed: seven niches, a
+catalogue, a product page, a cart and a checkout that takes no money. It exists
+so the buying experience can be tried before any of it is rebuilt as a Shopify
+theme.
 
 Open `store/index.html` from any static server — there is no build step and no
 backend required.

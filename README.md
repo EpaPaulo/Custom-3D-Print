@@ -1,8 +1,11 @@
-# Personalizador de Capa Bimby TM7
+# Personalizador de Capa Bimby TM7 — FormCAT
 
 A browser app for personalising a 3D-printable **Thermomix TM7 display cover**.
 Add text and images, see them on the cover in a live 3D preview, then download
 the two print-ready STLs.
+
+It is one of **FormCAT**'s two design apps — the other builds LEGO-compatible
+plates, in `lego/` — and the shop that sells what they make is in `store/`.
 
 The cover prints **black** and the design prints **white**, flush with the
 surface. There is no relief: the colour change happens in the first few layers,

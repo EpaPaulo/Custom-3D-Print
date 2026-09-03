@@ -1,8 +1,8 @@
 # Gerador de Placas — compatíveis LEGO
 
-A browser app for generating **3D-printable baseplates compatible with LEGO**.
-Pick a shape, set the size in studs, see it in a live 3D preview, then download
-a print-ready STL.
+**FormCAT**'s second design app: a browser app for generating **3D-printable
+baseplates compatible with LEGO**. Pick a shape, set the size in studs, see it
+in a live 3D preview, then download a print-ready STL.
 
 It is a separate app from the Bimby cover personaliser in this repository: its
 own page, its own geometry, its own backend. The only thing the two share is the
