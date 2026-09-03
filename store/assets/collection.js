@@ -59,7 +59,7 @@ if (term) {
   };
 }
 
-document.title = `${head.title} — epalfer.3d`;
+document.title = `${head.title} — Formora`;
 
 document.querySelector('[data-head]').style.setProperty('--tone', head.tone);
 document.querySelector('[data-head]').innerHTML = `

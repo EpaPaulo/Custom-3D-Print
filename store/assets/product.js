@@ -38,7 +38,7 @@ if (!p) {
 function render(p) {
   const n = niche(p.niche);
   chrome(n.id);
-  document.title = `${p.title} — epalfer.3d`;
+  document.title = `${p.title} — Formora`;
 
   const app = appFor(p.customizer);
   const was = p.compareAt && p.compareAt > p.price
