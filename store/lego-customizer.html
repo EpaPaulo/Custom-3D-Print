@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerador de placas em tijolos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>">
+<style>
+  /* Deliberately the configurator's own dark viewport and light panel, so the
+     two generators feel like one shop rather than two products. */
+  :root { --ink:#e8ecf1; --muted:#93a0ae; --line:#242a31; --accent:#1c6fd4; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: grid; grid-template-columns: 320px 1fr;
+    background: #0f1216; color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .panel { border-right: 1px solid var(--line); padding: 20px; overflow-y: auto; background: #131820; }
+  h1 { font-size: 15px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .lede { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  label { display: block; font-size: 12.5px; font-weight: 600; margin: 0 0 7px; }
+  .field { margin-bottom: 18px; }
+  input[type="text"], select {
+    width: 100%; padding: 10px 11px; border-radius: 9px; border: 1.5px solid var(--line);
+    background: #0f1216; color: var(--ink); font: inherit; font-size: 14px;
+  }
+  input[type="text"]:focus, select:focus { outline: 0; border-color: var(--accent); }
+  input[type="range"] { width: 100%; }
+  .swatches { display: flex; gap: 7px; flex-wrap: wrap; }
+  .sw {
+    width: 30px; height: 30px; border-radius: 8px; border: 2px solid transparent;
+    cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14);
+  }
+  .sw[aria-pressed="true"] { border-color: #fff; }
+  .note { color: var(--muted); font-size: 12px; margin: 0; }
+  .stats { display: flex; gap: 18px; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+  .stats div { font-size: 12px; color: var(--muted); }
+  .stats b { display: block; color: var(--ink); font-size: 14px; font-weight: 600; }
+  .stage { display: grid; place-items: center; padding: 24px; min-width: 0; }
+  canvas { max-width: 100%; max-height: 100%; border-radius: 12px; }
+  .hint { position: fixed; bottom: 14px; right: 18px; color: var(--muted); font-size: 12px; }
+  .mock {
+    margin-top: 18px; border: 1px dashed #33404f; border-radius: 10px; padding: 11px;
+    color: var(--muted); font-size: 12px;
+  }
+  @media (max-width: 780px) { body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .panel { max-height: 46vh; } }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <h1>Gerador de placas em tijolos</h1>
+  <p class="lede">Cada letra é montada em pinos de 8 mm. O que vê é o que é impresso.</p>
+
+  <div class="field">
+    <label for="txt">Texto</label>
+    <input id="txt" type="text" maxlength="12" value="MARTIM" placeholder="Até 12 caracteres">
+  </div>
+
+  <div class="field">
+    <label>Cor da placa</label>
+    <div class="swatches" id="plate"></div>
+  </div>
+
+  <div class="field">
+    <label>Cor das letras</label>
+    <div class="swatches" id="letters"></div>
+  </div>
+
+  <div class="field">
+    <label for="rows">Altura da placa <output id="rows-out"></output></label>
+    <input id="rows" type="range" min="7" max="12" step="1" value="9">
+  </div>
+
+  <div class="stats">
+    <div>Pinos<b id="s-studs">—</b></div>
+    <div>Medidas<b id="s-size">—</b></div>
+  </div>
+
+  <p class="mock">
+    Protótipo do gerador de tijolos. Fala o mesmo protocolo do personalizador Bimby,
+    por isso a loja trata os dois da mesma maneira — quando o gerador a sério existir,
+    basta apontar <code>?legoApp=</code> para ele.
+  </p>
+</div>
+
+<div class="stage"><canvas id="c" width="1000" height="620"></canvas></div>
+<div class="hint">Escreva e veja a placa montar-se</div>
+
+<script type="module">
+/**
+ * A brick-plate generator, standing in for the real one.
+ *
+ * Text is rasterised onto the stud grid itself rather than drawn as smooth
+ * type: a stud is either the letter colour or the plate colour, which is what
+ * the printed part can actually do. That makes the preview honest about
+ * resolution — a long name on a short plate loses legibility here exactly as
+ * it would on the bed.
+ *
+ * It answers the same postMessage contract as the TM7 configurator
+ * (bimby:ready / bimby:getDesign / bimby:design), so the storefront needs no
+ * special case for it.
+ */
+
+const PALETTE = [
+  ['#b32d23', 'Vermelho'], ['#1b5fbe', 'Azul'], ['#e0a800', 'Amarelo'],
+  ['#1f7a44', 'Verde'], ['#1a1d21', 'Preto'], ['#f2f2ef', 'Branco'],
+  ['#9aa6b2', 'Cinza'],
+];
+
+const PITCH = 8;           // mm between studs — the compatible spacing
+const params = new URLSearchParams(location.search);
+const MODEL = params.get('model') || 'nameplate';
+
+const state = {
+  text: 'MARTIM',
+  plate: '#b32d23',
+  letter: '#f2f2ef',
+  rows: 9,
+};
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// The grid the letters are rasterised into, one cell per stud.
+const grid = document.createElement('canvas');
+const gctx = grid.getContext('2d', { willReadFrequently: true });
+
+function swatches(host, key) {
+  host.innerHTML = '';
+  for (const [hex, label] of PALETTE) {
+    const b = document.createElement('button');
+    b.className = 'sw';
+    b.type = 'button';
+    b.title = label;
+    b.style.background = hex;
+    b.setAttribute('aria-pressed', String(state[key] === hex));
+    b.addEventListener('click', () => {
+      state[key] = hex;
+      for (const s of host.children) s.setAttribute('aria-pressed', String(s === b));
+      draw();
+    });
+    host.append(b);
+  }
+}
+
+/** Which studs the text lands on, as a rows × cols boolean grid. */
+function mask(cols, rows) {
+  grid.width = cols;
+  grid.height = rows;
+  gctx.clearRect(0, 0, cols, rows);
+  gctx.fillStyle = '#fff';
+
+  const text = state.text.trim().toUpperCase();
+  if (!text) return { data: null, cols, rows };
+
+  // Fit the type to the grid's inner box, then read it back cell by cell.
+  // Letters need most of the plate's height to survive being reduced to studs:
+  // below about five rows the strokes start merging into each other.
+  const inner = rows - 2;
+  gctx.textAlign = 'center';
+  gctx.textBaseline = 'middle';
+  let size = inner;
+  do {
+    gctx.font = `700 ${size}px "Arial Black", system-ui, sans-serif`;
+    if (gctx.measureText(text).width <= cols - 2) break;
+    size -= 0.5;
+  } while (size > 2);
+
+  gctx.fillText(text, cols / 2, rows / 2 + 0.5);
+  return { data: gctx.getImageData(0, 0, cols, rows).data, cols, rows };
+}
+
+function draw() {
+  const text = state.text.trim().toUpperCase();
+  const rows = state.rows;
+  // Five studs per character. Fewer and the type has to shrink to fit the
+  // width, which costs height as well — and a letter under about five rows
+  // tall stops being readable once it is only studs.
+  const cols = Math.max(12, Math.min(44, text.length * 5 + 4));
+  const m = mask(cols, rows);
+
+  const cell = Math.min((canvas.width - 80) / cols, (canvas.height - 80) / rows);
+  const w = cell * cols;
+  const h = cell * rows;
+  const x0 = (canvas.width - w) / 2;
+  const y0 = (canvas.height - h) / 2;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // plate
+  ctx.fillStyle = state.plate;
+  round(x0, y0, w, h, cell * 0.28);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.35)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // studs
+  let lit = 0;
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const on = m.data ? m.data[((r * cols) + c) * 4 + 3] > 110 : false;
+      if (on) lit += 1;
+      const cx = x0 + (c + 0.5) * cell;
+      const cy = y0 + (r + 0.5) * cell;
+      const rad = cell * 0.3;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy + cell * 0.045, rad, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,.28)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      ctx.fillStyle = on ? state.letter : state.plate;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx - rad * 0.28, cy - rad * 0.3, rad * 0.44, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,.20)';
+      ctx.fill();
+    }
+  }
+
+  document.getElementById('s-studs').textContent = `${cols} × ${rows}`;
+  document.getElementById('s-size').textContent = `${cols * PITCH} × ${rows * PITCH} mm`;
+  document.getElementById('rows-out').textContent = `${rows} filas`;
+
+  last = { cols, rows, lit, maskData: m.data };
+  announce('bimby:change');
+}
+
+function round(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+let last = null;
+
+// -- the storefront contract ------------------------------------------------
+
+/** The stamp mask, upscaled to something a slicer-side rasteriser can use. */
+function maskPng() {
+  if (!last || !last.maskData) return null;
+  const out = document.createElement('canvas');
+  const scale = 24;
+  out.width = last.cols * scale;
+  out.height = last.rows * scale;
+  const o = out.getContext('2d');
+  o.fillStyle = '#000';
+  o.fillRect(0, 0, out.width, out.height);
+  o.fillStyle = '#fff';
+  for (let r = 0; r < last.rows; r += 1) {
+    for (let c = 0; c < last.cols; c += 1) {
+      if (last.maskData[((r * last.cols) + c) * 4 + 3] > 110) {
+        o.beginPath();
+        o.arc((c + 0.5) * scale, (r + 0.5) * scale, scale * 0.42, 0, Math.PI * 2);
+        o.fill();
+      }
+    }
+  }
+  return out.toDataURL('image/png');
+}
+
+window.BrickPlate = {
+  getDesign() {
+    const text = state.text.trim().toUpperCase();
+    if (!text) return null;
+    return {
+      config: {
+        mode: 'template',
+        model: MODEL,
+        pitch: PITCH,
+        plate: state.plate,
+        letter: state.letter,
+        grid: { cols: last.cols, rows: last.rows },
+        layers: [{ type: 'text', text }],
+      },
+      summary: `“${text}” · ${last.cols} × ${last.rows} pinos`,
+      maskPng: maskPng(),
+      previewPng: canvas.toDataURL('image/png'),
+    };
+  },
+};
+
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (!msg || msg.type !== 'bimby:getDesign' || !event.source) return;
+  let design = null;
+  try { design = window.BrickPlate.getDesign(); } catch (err) { console.error(err); }
+  const target = event.origin && event.origin !== 'null' ? event.origin : '*';
+  event.source.postMessage({ type: 'bimby:design', requestId: msg.requestId, design }, target);
+});
+
+function announce(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({
+    type,
+    hasDesign: Boolean(state.text.trim()),
+    mode: 'template',
+    model: MODEL,
+  }, '*');
+}
+
+// -- wiring -----------------------------------------------------------------
+
+document.getElementById('txt').addEventListener('input', (e) => {
+  state.text = e.target.value;
+  draw();
+});
+document.getElementById('rows').addEventListener('input', (e) => {
+  state.rows = Number(e.target.value);
+  draw();
+});
+swatches(document.getElementById('plate'), 'plate');
+swatches(document.getElementById('letters'), 'letter');
+
+draw();
+announce('bimby:ready');
+</script>
+
+</body>
+</html>

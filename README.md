@@ -143,6 +143,18 @@ achievable when the shape itself is manifold: regions that touch at a single
 point share a vertical edge once the design has thickness, and four faces meet
 there by construction.
 
+## The shop
+
+`store/` is a storefront around this configurator: seven niches (Bimby, LEGO,
+gaming, animals, kitchen & WC, drones, ergonomics), a catalogue, product pages,
+a cart and a stub checkout. The Bimby and LEGO products are personalised — their
+buy button stays disabled until the customer has designed the part, and pressing
+*Personalizar* opens this configurator in `?shop=1` mode (or the brick-plate
+generator) over the page.
+
+It is static, needs no backend, and is served alongside this app:
+<http://localhost:8099/store/>. See `store/README.md`.
+
 ## Layout
 
 ```
