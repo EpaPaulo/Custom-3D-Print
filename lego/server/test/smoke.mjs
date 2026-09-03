@@ -219,6 +219,31 @@ await check('no stud is ever left hanging over the edge', () => {
   assert.ok(plate.studs.length > 250, `only ${plate.studs.length} studs kept`);
 });
 
+await check('the dimensions that decide compatibility cannot be overridden', () => {
+  // Pitch, stud and clearance are what LEGO compatibility is. They come from
+  // the system, and a caller sending its own — or a spec stored by an older
+  // build that let them be edited — is ignored rather than obeyed.
+  const forced = normaliseSpec({
+    studHeight: 3.2, studDiameter: 6.75, pitch: 11.5, clearance: 0.9, studWall: 4,
+  });
+  assert.equal(forced.pitch, 8);
+  assert.equal(forced.studDiameter, 4.85);
+  assert.equal(forced.studHeight, 1.8);
+  assert.equal(forced.clearance, 0.2);
+
+  // The system still decides them, so Duplo is Duplo.
+  assert.equal(normaliseSpec({ system: 'duplo', pitch: 11.5 }).pitch, 16);
+
+  // A plate built from a spec carrying junk is the standard one, to the micron.
+  const plate = buildPlate({ width: 28, depth: 25, pitch: 11.5, studDiameter: 6.75 });
+  assert.ok(Math.abs(plate.size.x - 226.038) < 1e-3, `width ${plate.size.x}`);
+  assert.equal(plate.studs.length, 700);
+
+  // Thickness is the exception: a real choice, and still settable.
+  assert.equal(normaliseSpec({ thickness: 6 }).thickness, 6);
+  assert.equal(buildPlate({ width: 8, depth: 8, thickness: 6 }).size.z > 6, true);
+});
+
 await check('out-of-range numbers are clamped, unknown names are refused', () => {
   const spec = normaliseSpec({ width: 9999, scale: 5, thickness: -3 });
   assert.equal(spec.width, 96);

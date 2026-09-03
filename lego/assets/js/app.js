@@ -78,10 +78,6 @@ const SLIDERS = [
   { el: 'f-army', out: 'o-army', key: 'armY', fmt: (v) => `${v} pinos` },
   { el: 'f-scale', out: 'o-scale', key: 'scale', fmt: (v) => `${v > 1 ? '+' : ''}${((v - 1) * 100).toFixed(1)} %` },
   { el: 'f-thickness', out: 'o-thickness', key: 'thickness', fmt: (v) => mm(v) },
-  { el: 'f-studheight', out: 'o-studheight', key: 'studHeight', fmt: (v) => mm(v) },
-  { el: 'f-studdia', out: 'o-studdia', key: 'studDiameter', fmt: (v) => mm(v) },
-  { el: 'f-pitch', out: 'o-pitch', key: 'pitch', fmt: (v) => mm(v) },
-  { el: 'f-clearance', out: 'o-clearance', key: 'clearance', fmt: (v) => mm(v) },
 ];
 
 const mm = (v) => `${(Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, '')} mm`;
@@ -292,18 +288,12 @@ function wireControls() {
   }
 
   $('f-system').addEventListener('change', () => {
-    // Switching system resets the stud figures to that system's own, since the
-    // previous ones described a different brick entirely.
+    // The stud figures follow the system on their own. Thickness does not —
+    // it is a choice rather than a compatibility dimension — so switching
+    // system takes the new one's as a starting point.
     const sys = SYSTEMS.find((s) => s.id === $('f-system').value);
-    Object.assign(spec, {
-      system: sys.id,
-      pitch: sys.pitch,
-      clearance: sys.clearance,
-      studDiameter: sys.studDiameter,
-      studHeight: sys.studHeight,
-      thickness: sys.thickness,
-      studWall: sys.studWall,
-    });
+    spec.system = sys.id;
+    spec.thickness = sys.thickness;
     writeControls();
     changed();
   });
@@ -434,10 +424,6 @@ function refusal() {
   }
   if (spec.shape === 'text' && !CHARACTERS.includes(spec.char)) {
     return `"${spec.char}" não existe como placa. Use uma letra A–Z ou um algarismo 0–9.`;
-  }
-  if (spec.studDiameter >= spec.pitch - 0.2) {
-    return 'O pino é largo de mais para o passo da grelha. ' +
-           'Reduza o diâmetro do pino ou aumente o passo, em Medidas avançadas.';
   }
   return 'Estas medidas não formam uma placa.';
 }

@@ -72,8 +72,19 @@ it is the one setting worth calibrating.
    stud fits inside the outline, so nothing ever hangs over the edge. Pick your
    printer under *Área de impressão* and the app says when a plate stops fitting.
 3. **Pinos** — LEGO or Duplo spacing, the fit adjustment, all-studs / border /
-   chequerboard / none, and hollow studs. Every individual dimension is
-   adjustable under *Medidas avançadas* if your printer wants different numbers.
+   chequerboard / none, and hollow studs.
+
+   The pitch, the stud and the side clearance are **not adjustable**, by design.
+   They are what compatibility *is*: alter any of them and the plate is still a
+   plate, but nothing clicks onto it. They come from the chosen system, and a
+   spec that carries its own — from an API caller, or stored by an older build
+   that let them be edited — is ignored rather than obeyed, so an old bad value
+   heals the next time the plate is built. To make studs grip more or less, use
+   the fit adjustment, which is the knob for it.
+
+   Plate thickness is the exception and sits with the other dimensions: a
+   thicker plate is stiffer and a thinner one cheaper, and a brick fits either
+   way.
 4. **Descarregar STL** — millimetres, ready for the slicer.
 
 Your settings are kept in `localStorage`, so a refresh won't lose them.

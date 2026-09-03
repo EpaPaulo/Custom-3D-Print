@@ -79,12 +79,7 @@ export const LIMITS = {
   maxStuds: 6000,     // positions on the grid
   scale: [0.95, 1.06],
   thickness: [0.6, 12],
-  studHeight: [0.4, 12],
-  studDiameter: [1.5, 20],
-  pitch: [3, 40],
-  clearance: [0, 2],
   margin: [0, 4],
-  studWall: [0.4, 6],
 };
 
 export const DEFAULTS = {
@@ -157,15 +152,22 @@ export function normaliseSpec(input = {}) {
   spec.margin = clamp(num(input.margin, DEFAULTS.margin), LIMITS.margin);
   spec.hollowStuds = !!input.hollowStuds;
 
-  // Stud geometry defaults to the system's, but every figure stays adjustable:
-  // nozzle width and shrinkage differ enough between printers that a fixed set
-  // would send some people to a mesh editor.
-  spec.pitch = clamp(num(input.pitch, sys.pitch), LIMITS.pitch);
-  spec.clearance = clamp(num(input.clearance, sys.clearance), LIMITS.clearance);
-  spec.studDiameter = clamp(num(input.studDiameter, sys.studDiameter), LIMITS.studDiameter);
-  spec.studHeight = clamp(num(input.studHeight, sys.studHeight), LIMITS.studHeight);
+  // The dimensions that decide whether a brick fits belong to the system, not
+  // to whoever is holding the sliders. The pitch, the stud, and the clearance
+  // that lets two plates sit side by side are what compatibility *is*: alter
+  // any of them and the plate is still a plate, but nothing clicks onto it.
+  // They are taken from the chosen system, and a caller that sends its own is
+  // ignored rather than obeyed — including a spec stored by an older build
+  // that let them be edited, which is how those heal.
+  spec.pitch = sys.pitch;
+  spec.clearance = sys.clearance;
+  spec.studDiameter = sys.studDiameter;
+  spec.studHeight = sys.studHeight;
+  spec.studWall = sys.studWall;
+
+  // Thickness is the exception, and a real choice: a thicker plate is stiffer
+  // and a thinner one cheaper, and a brick fits either way.
   spec.thickness = clamp(num(input.thickness, sys.thickness), LIMITS.thickness);
-  spec.studWall = clamp(num(input.studWall, sys.studWall), LIMITS.studWall);
 
   // Shape parameters. Read for every shape so switching shape and back does not
   // silently lose what was set, and bounded so a stored spec cannot smuggle a
@@ -215,9 +217,11 @@ export function normaliseSpec(input = {}) {
     );
   }
 
-  // A stud has to fit in its cell with a wall left between neighbours.
+  // A stud has to fit in its cell with a wall left between neighbours. Nothing
+  // a caller sends can break this any more; it guards the SYSTEMS table against
+  // a badly entered row.
   if (spec.studDiameter >= spec.pitch - 0.2) {
-    throw new SpecError('Stud diameter must leave room inside the pitch.');
+    throw new SpecError(`System "${spec.system}" has studs too wide for its own pitch.`);
   }
 
   return spec;
